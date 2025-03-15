@@ -1010,57 +1010,98 @@ class MicrogridReportGenerator:
 
 # Example usage
 if __name__ == "__main__":
-    st.title("Microgrid Analysis Report")
-    
+    st.title("Microgrid Analysis Interactive Report")
+
+    # Sidebar: Scenario & Input Parameters
+    st.sidebar.header("Scenario & Input Parameters")
     scenario_option = st.sidebar.selectbox(
         "Select Scenario",
-        ["Base Scenario", "High PV Scenario", "High Wind Scenario", "High Storage Scenario"]
+        ["Custom", "Base Scenario", "High PV Scenario", "High Wind Scenario", "High Storage Scenario"]
     )
+
+    # If "Custom", users can define all parameters.
+    # Otherwise, preset values are assigned.
+    if scenario_option == "Custom":
+        pv_capacity = st.sidebar.number_input("PV Capacity (kW)", min_value=0, value=150)
+        wind_capacity = st.sidebar.number_input("Wind Capacity (kW)", min_value=0, value=100)
+        battery_capacity = st.sidebar.number_input("Battery Capacity (kWh)", min_value=0, value=300)
+        battery_power = st.sidebar.number_input("Battery Power (kW)", min_value=0, value=75)
+        peak_load = st.sidebar.number_input("Peak Load (kW)", min_value=0, value=180)
+    else:
+        if scenario_option == "Base Scenario":
+            pv_capacity = 150
+            wind_capacity = 100
+            battery_capacity = 300
+            battery_power = 75
+            peak_load = 180
+        elif scenario_option == "High PV Scenario":
+            pv_capacity = 250
+            wind_capacity = 50
+            battery_capacity = 300
+            battery_power = 75
+            peak_load = 180
+        elif scenario_option == "High Wind Scenario":
+            pv_capacity = 50
+            wind_capacity = 250
+            battery_capacity = 300
+            battery_power = 75
+            peak_load = 180
+        elif scenario_option == "High Storage Scenario":
+            pv_capacity = 150
+            wind_capacity = 100
+            battery_capacity = 600
+            battery_power = 150
+            peak_load = 180
+
+    simulation_days = st.sidebar.number_input("Simulation Days", min_value=1, value=7)
     
-    @st.cache_resource
-    def load_scenario(scenario_name):
-        scenario = MicrogridReportGenerator(scenario_name)
-        if scenario_name == "High PV Scenario":
-            scenario.pv_capacity = 250
-            scenario.wind_capacity = 50
+    if st.sidebar.button("Run Simulation"):
+        with st.spinner("Running simulation and generating report..."):
+            # Instantiate a scenario using a generic name (here 'Custom')
+            scenario = MicrogridReportGenerator("Custom")
+            
+            # Override simulation time parameters and system inputs from user
+            scenario.days = simulation_days
+            scenario.hours = simulation_days * 24
+            scenario.time_range = np.linspace(0, simulation_days, simulation_days * 24)
+            scenario.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h) for h in range(simulation_days * 24)]
+            scenario.pv_capacity = pv_capacity
+            scenario.wind_capacity = wind_capacity
+            scenario.battery_capacity = battery_capacity
+            scenario.battery_power = battery_power
+            scenario.peak_load = peak_load
+
+            # Re-generate data with updated parameters
             scenario.generate_data()
-        elif scenario_name == "High Wind Scenario":
-            scenario.pv_capacity = 50
-            scenario.wind_capacity = 250
-            scenario.generate_data()
-        elif scenario_name == "High Storage Scenario":
-            scenario.battery_capacity = 600
-            scenario.battery_power = 150
-            scenario.generate_data()
-        return scenario
-    
-    scenario = load_scenario(scenario_option)
-    
-    with st.spinner("Generating comprehensive report..."):
-        files = scenario.create_comprehensive_report()
-    
-    try:
-        with open(files['summary'], 'r') as f:
-            summary_text = f.read()
-        st.subheader("Report Summary")
-        st.text_area("Summary", summary_text, height=300)
-    except Exception as e:
-        st.error(f"Could not load summary: {e}")
-    
-    st.subheader("Energy Flow Diagram")
-    energy_flow_fig = scenario.create_energy_flow_plot()
-    st.pyplot(energy_flow_fig)
-    
-    st.subheader("Battery State of Charge")
-    battery_soc_fig = scenario.create_battery_soc_plot()
-    st.pyplot(battery_soc_fig)
-    
-    if st.sidebar.button("Run Scenario Comparison"):
-        with st.spinner("Comparing scenarios..."):
-            base = load_scenario("Base Scenario")
-            high_pv = load_scenario("High PV Scenario")
-            high_wind = load_scenario("High Wind Scenario")
-            high_storage = load_scenario("High Storage Scenario")
-            comparison_files = base.compare_scenarios([high_pv, high_wind, high_storage])
-        st.success("Scenario comparison complete!")
-        st.image(comparison_files['performance_spider_chart'], caption="Performance Spider Chart")
+            files = scenario.create_comprehensive_report()
+        st.success("Simulation complete!")
+        
+        # Display the Report Summary
+        try:
+            with open(files['summary'], 'r') as f:
+                summary_text = f.read()
+            st.subheader("Report Summary")
+            st.text_area("Summary", summary_text, height=300)
+        except Exception as e:
+            st.error(f"Could not load summary: {e}")
+        
+        # Display Generated Figures
+        st.subheader("Energy Flow Diagram")
+        energy_flow_fig = scenario.create_energy_flow_plot()
+        st.pyplot(energy_flow_fig)
+
+        st.subheader("Battery State of Charge")
+        battery_soc_fig = scenario.create_battery_soc_plot()
+        st.pyplot(battery_soc_fig)
+        
+        st.subheader("Average Daily Profiles")
+        daily_profile_fig = scenario.create_daily_profile_plot()
+        st.pyplot(daily_profile_fig)
+        
+        st.subheader("Energy Balance Diagram")
+        energy_balance_fig = scenario.create_energy_balance_diagram()
+        st.pyplot(energy_balance_fig)
+
+        st.subheader("LCOE Breakdown")
+        lcoe_breakdown_fig = scenario.create_lcoe_breakdown()
+        st.pyplot(lcoe_breakdown_fig)
