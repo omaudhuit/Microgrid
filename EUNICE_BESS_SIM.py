@@ -1118,7 +1118,8 @@ if __name__ == "__main__":
             st.pyplot(scenario.create_lcoe_breakdown())
 
     with sensitivity_tab:
-        st.subheader("Run Complex Multiway Sensitivity Analysis on LCOE")
+        st.subheader("Multiway Sensitivity Analysis on LCOE")
+
         if st.button("Run Sensitivity Analysis"):
             with st.spinner("Performing sensitivity analysis..."):
                 # Define ranges for key parameters
@@ -1139,12 +1140,103 @@ if __name__ == "__main__":
                 # Run grid search over PV, Wind, and Battery capacities
                 df_sens = base_scenario.perform_sensitivity_analysis(pv_range, wind_range, battery_range)
 
-                # Create a heatmap for each battery capacity level
-                fig, axes = plt.subplots(1, len(battery_range), figsize=(20, 5), sharey=True)
+                # Create a heatmap for each battery capacity level with larger fonts and figure size
+                fig_heat, axes = plt.subplots(1, len(battery_range), figsize=(24, 6), sharey=True)
                 for i, batt in enumerate(battery_range):
                     sub_df = df_sens[np.isclose(df_sens['Battery Capacity'], batt)]
                     pivot = sub_df.pivot(index='Wind Capacity', columns='PV Capacity', values='LCOE')
-                    sns.heatmap(pivot, ax=axes[i], annot=True, fmt=".4f", cmap="viridis")
-                    axes[i].set_title(f"Battery Capacity {batt:.0f} kWh")
-                st.success("Sensitivity analysis complete!")
-                st.pyplot(fig)
+                    sns.heatmap(pivot, ax=axes[i], annot=True, fmt=".4f", cmap="viridis",
+                                cbar=i==len(battery_range)-1, annot_kws={"size":12})
+                    axes[i].set_title(f"Battery Capacity {batt:.0f} kWh", fontsize=14)
+                    axes[i].tick_params(axis='both', labelsize=12)
+                fig_heat.tight_layout()
+                st.pyplot(fig_heat)
+                st.success("Multiway sensitivity analysis complete!")
+
+        st.markdown("---")
+        st.subheader("Tornado Chart: One‐Way Sensitivity of LCOE")
+
+        if st.button("Run Tornado Analysis"):
+            with st.spinner("Performing tornado analysis..."):
+                # Baseline input parameters & scenario
+                baseline = MicrogridReportGenerator("Baseline")
+                baseline.days = simulation_days
+                baseline.hours = simulation_days * 24
+                baseline.time_range = np.linspace(0, simulation_days, simulation_days * 24)
+                baseline.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h)
+                                  for h in range(simulation_days * 24)]
+                baseline.pv_capacity = pv_capacity
+                baseline.wind_capacity = wind_capacity
+                baseline.battery_capacity = battery_capacity
+                baseline.battery_power = battery_power
+                baseline.peak_load = peak_load
+                baseline.generate_data()
+                baseline_lcoe = baseline.lcoe
+
+                # Define factors for one-way variation
+                variation_factors = np.array([0.8, 0.9, 1.0, 1.1, 1.2])
+                sensitivity_results = {}
+
+                for param, base_val in [('PV Capacity', pv_capacity),
+                                        ('Wind Capacity', wind_capacity),
+                                        ('Battery Capacity', battery_capacity)]:
+                    lcoe_vals = []
+                    for factor in variation_factors:
+                        sim = MicrogridReportGenerator("Tornado")
+                        sim.days = simulation_days
+                        sim.hours = simulation_days * 24
+                        sim.time_range = np.linspace(0, simulation_days, simulation_days * 24)
+                        sim.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h)
+                                     for h in range(simulation_days * 24)]
+                        # Set the baseline inputs
+                        sim.pv_capacity = pv_capacity
+                        sim.wind_capacity = wind_capacity
+                        sim.battery_capacity = battery_capacity
+                        sim.battery_power = battery_power
+                        sim.peak_load = peak_load
+                        # Overwrite the parameter under study
+                        if param == "PV Capacity":
+                            sim.pv_capacity = base_val * factor
+                        elif param == "Wind Capacity":
+                            sim.wind_capacity = base_val * factor
+                        elif param == "Battery Capacity":
+                            sim.battery_capacity = base_val * factor
+
+                        sim.generate_data()
+                        lcoe_vals.append(sim.lcoe)
+                    sensitivity_results[param] = (variation_factors * base_val, lcoe_vals)
+
+                # Create tornado chart as horizontal bar chart
+                fig_tornado, ax = plt.subplots(figsize=(10, 8))
+                bar_height = 0.25
+                y_ticks = []
+                y_labels = []
+                y_positions = []
+                current_pos = 0
+
+                # For each parameter perform plotting
+                for param, (x_vals, lcoe_vals) in sensitivity_results.items():
+                    # Calculate deviations from baseline (in $/kWh difference)
+                    deviations = np.array(lcoe_vals) - baseline_lcoe
+                    # Order the factors such that the maximum deviation appears at top
+                    sort_order = np.argsort(deviations)
+                    sorted_deps = deviations[sort_order]
+                    sorted_labels = [f"{param} = {x_vals[i]:.0f}" for i in sort_order]
+                    # Plot horizontal bars
+                    ax.barh(np.arange(current_pos, current_pos + len(sorted_deps)), sorted_deps,
+                            height=bar_height, align='center', color='skyblue', edgecolor='black')
+                    # Record positions and labels
+                    for i in range(len(sorted_deps)):
+                        y_ticks.append(current_pos + i)
+                        y_labels.append(sorted_labels[i])
+                    current_pos += len(sorted_deps) + 1  # gap between groups
+
+                ax.axvline(0, color='black', linewidth=1.5)
+                ax.set_xlabel("LCOE Change ($/kWh)", fontsize=12)
+                ax.set_title("Tornado Chart - One-Way Sensitivity of LCOE", fontsize=14)
+                ax.set_yticks(y_ticks)
+                ax.set_yticklabels(y_labels, fontsize=10)
+                fig_tornado.tight_layout()
+
+                st.pyplot(fig_tornado)
+                st.success("Tornado analysis complete!")
