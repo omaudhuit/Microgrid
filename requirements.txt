@@ -1,0 +1,13 @@
+streamlit
+flask
+gunicorn
+numpy
+pandas
+matplotlib
+seaborn
+uvicorn
+plotly
+fpdf
+npf
+px
+numpy-financial
