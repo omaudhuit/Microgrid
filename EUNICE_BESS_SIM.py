@@ -416,8 +416,8 @@ class MicrogridReportGenerator:
             f"Min SOC: {min_soc:.1f}%\n"
             f"Max SOC: {max_soc:.1f}%\n"
             f"Avg SOC: {avg_soc:.1f}%\n"
-            f"Total Charge: {np.sum(self.battery_charge):.1f} kWh\n"
-            f"Total Discharge: {np.sum(self.battery_discharge):.1f} kWh\n"
+            f"Total Charge: {np.sum(self.battery_charge)::.1f} kWh\n"
+            f"Total Discharge: {np.sum(self.battery_discharge)::.1f} kWh\n"
             f"Equivalent Cycles: {self.battery_cycles:.2f}"
         )
         
@@ -1012,35 +1012,33 @@ class MicrogridReportGenerator:
 if __name__ == "__main__":
     st.title("Microgrid Analysis Report")
     
-    # Let the user select a scenario from a sidebar
     scenario_option = st.sidebar.selectbox(
         "Select Scenario",
         ["Base Scenario", "High PV Scenario", "High Wind Scenario", "High Storage Scenario"]
     )
     
-    # Initialize the scenario based on selection
-    if scenario_option == "Base Scenario":
-        scenario = MicrogridReportGenerator("Base Scenario")
-    elif scenario_option == "High PV Scenario":
-        scenario = MicrogridReportGenerator("High PV Scenario")
-        scenario.pv_capacity = 250
-        scenario.wind_capacity = 50
-        scenario.generate_data()
-    elif scenario_option == "High Wind Scenario":
-        scenario = MicrogridReportGenerator("High Wind Scenario")
-        scenario.pv_capacity = 50
-        scenario.wind_capacity = 250
-        scenario.generate_data()
-    elif scenario_option == "High Storage Scenario":
-        scenario = MicrogridReportGenerator("High Storage Scenario")
-        scenario.battery_capacity = 600
-        scenario.battery_power = 150
-        scenario.generate_data()
+    @st.cache_resource
+    def load_scenario(scenario_name):
+        scenario = MicrogridReportGenerator(scenario_name)
+        if scenario_name == "High PV Scenario":
+            scenario.pv_capacity = 250
+            scenario.wind_capacity = 50
+            scenario.generate_data()
+        elif scenario_name == "High Wind Scenario":
+            scenario.pv_capacity = 50
+            scenario.wind_capacity = 250
+            scenario.generate_data()
+        elif scenario_name == "High Storage Scenario":
+            scenario.battery_capacity = 600
+            scenario.battery_power = 150
+            scenario.generate_data()
+        return scenario
     
-    # Generate the full report including figures and summary text
-    files = scenario.create_comprehensive_report()
+    scenario = load_scenario(scenario_option)
     
-    # Display the summary text in a text area
+    with st.spinner("Generating comprehensive report..."):
+        files = scenario.create_comprehensive_report()
+    
     try:
         with open(files['summary'], 'r') as f:
             summary_text = f.read()
@@ -1049,7 +1047,6 @@ if __name__ == "__main__":
     except Exception as e:
         st.error(f"Could not load summary: {e}")
     
-    # Display key figures using st.pyplot
     st.subheader("Energy Flow Diagram")
     energy_flow_fig = scenario.create_energy_flow_plot()
     st.pyplot(energy_flow_fig)
@@ -1058,32 +1055,12 @@ if __name__ == "__main__":
     battery_soc_fig = scenario.create_battery_soc_plot()
     st.pyplot(battery_soc_fig)
     
-    # Create base scenario
-    base_scenario = MicrogridReportGenerator("Base Scenario")
-    base_scenario.create_comprehensive_report()
-    
-    # Create alternative scenarios
-    high_pv = MicrogridReportGenerator("High PV Scenario")
-    high_pv.pv_capacity = 250
-    high_pv.wind_capacity = 50
-    high_pv.generate_data()
-    high_pv.create_comprehensive_report()
-    
-    high_wind = MicrogridReportGenerator("High Wind Scenario")
-    high_wind.pv_capacity = 50
-    high_wind.wind_capacity = 250
-    high_wind.generate_data()
-    high_wind.create_comprehensive_report()
-    
-    high_storage = MicrogridReportGenerator("High Storage Scenario")
-    high_storage.battery_capacity = 600
-    high_storage.battery_power = 150
-    high_storage.generate_data()
-    high_storage.create_comprehensive_report()
-    
-    # Compare scenarios
-    comparison_files = base_scenario.compare_scenarios([high_pv, high_wind, high_storage])
-    
-    print("Reports generated successfully!")
-    print(f"Base scenario report: {base_scenario.report_dir}")
-    print(f"Comparison report: {comparison_files}")
+    if st.sidebar.button("Run Scenario Comparison"):
+        with st.spinner("Comparing scenarios..."):
+            base = load_scenario("Base Scenario")
+            high_pv = load_scenario("High PV Scenario")
+            high_wind = load_scenario("High Wind Scenario")
+            high_storage = load_scenario("High Storage Scenario")
+            comparison_files = base.compare_scenarios([high_pv, high_wind, high_storage])
+        st.success("Scenario comparison complete!")
+        st.image(comparison_files['performance_spider_chart'], caption="Performance Spider Chart")
