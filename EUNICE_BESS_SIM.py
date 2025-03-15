@@ -375,7 +375,8 @@ class MicrogridReportGenerator:
         ax.plot(dates, soc_percent, 'k-', linewidth=2, label='SOC')
         
         # Add min SOC line
-        ax.axhline(y=self.battery_soc_min * 100, color='r', linestyle='--', alpha=0.7, label=f'Min SOC ({self.battery_soc_min*100:.0f}%)')
+        ax.axhline(y=self.battery_soc_min * 100, color='r', linestyle='--', alpha=0.7, 
+                   label=f'Min SOC ({self.battery_soc_min*100:.0f}%)')
         
         # Highlight charge/discharge events
         charge_mask = self.battery_charge > 0
@@ -416,8 +417,8 @@ class MicrogridReportGenerator:
             f"Min SOC: {min_soc:.1f}%\n"
             f"Max SOC: {max_soc:.1f}%\n"
             f"Avg SOC: {avg_soc:.1f}%\n"
-            f"Total Charge: {np.sum(self.battery_charge)::.1f} kWh\n"
-            f"Total Discharge: {np.sum(self.battery_discharge)::.1f} kWh\n"
+            f"Total Charge: {np.sum(self.battery_charge):.1f} kWh\n"
+            f"Total Discharge: {np.sum(self.battery_discharge):.1f} kWh\n"
             f"Equivalent Cycles: {self.battery_cycles:.2f}"
         )
         
