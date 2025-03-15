@@ -1010,6 +1010,54 @@ class MicrogridReportGenerator:
 
 # Example usage
 if __name__ == "__main__":
+    st.title("Microgrid Analysis Report")
+    
+    # Let the user select a scenario from a sidebar
+    scenario_option = st.sidebar.selectbox(
+        "Select Scenario",
+        ["Base Scenario", "High PV Scenario", "High Wind Scenario", "High Storage Scenario"]
+    )
+    
+    # Initialize the scenario based on selection
+    if scenario_option == "Base Scenario":
+        scenario = MicrogridReportGenerator("Base Scenario")
+    elif scenario_option == "High PV Scenario":
+        scenario = MicrogridReportGenerator("High PV Scenario")
+        scenario.pv_capacity = 250
+        scenario.wind_capacity = 50
+        scenario.generate_data()
+    elif scenario_option == "High Wind Scenario":
+        scenario = MicrogridReportGenerator("High Wind Scenario")
+        scenario.pv_capacity = 50
+        scenario.wind_capacity = 250
+        scenario.generate_data()
+    elif scenario_option == "High Storage Scenario":
+        scenario = MicrogridReportGenerator("High Storage Scenario")
+        scenario.battery_capacity = 600
+        scenario.battery_power = 150
+        scenario.generate_data()
+    
+    # Generate the full report including figures and summary text
+    files = scenario.create_comprehensive_report()
+    
+    # Display the summary text in a text area
+    try:
+        with open(files['summary'], 'r') as f:
+            summary_text = f.read()
+        st.subheader("Report Summary")
+        st.text_area("Summary", summary_text, height=300)
+    except Exception as e:
+        st.error(f"Could not load summary: {e}")
+    
+    # Display key figures using st.pyplot
+    st.subheader("Energy Flow Diagram")
+    energy_flow_fig = scenario.create_energy_flow_plot()
+    st.pyplot(energy_flow_fig)
+    
+    st.subheader("Battery State of Charge")
+    battery_soc_fig = scenario.create_battery_soc_plot()
+    st.pyplot(battery_soc_fig)
+    
     # Create base scenario
     base_scenario = MicrogridReportGenerator("Base Scenario")
     base_scenario.create_comprehensive_report()
