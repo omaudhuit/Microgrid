@@ -2,7 +2,9 @@
 
 User's Manual for MicrogridReportGenerator
 Overview
+
 The MicrogridReportGenerator Python class generates comprehensive analytical reports and visualizations for microgrid systems, facilitating detailed analysis of energy flows, renewable energy performance, battery storage dynamics, and financial evaluations. It's designed for users aiming to simulate, assess, and optimize microgrid scenarios based on customizable parameters.
+
 Prerequisites
 Ensure the following libraries are installed:
 numpy
@@ -10,6 +12,7 @@ pandas
 matplotlib
 seaborn
 scipy
+
 Install these packages using pip:
 pip install numpy pandas matplotlib seaborn scipy
 Initialization and Parameters
