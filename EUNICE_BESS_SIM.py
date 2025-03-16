@@ -25,7 +25,7 @@ class MicrogridReportGenerator:
         self.scenario_name = scenario_name
         
         # Simulation parameters
-        self.days = 7  # One week simulation
+        self.days = 7  # One week simulation (default, can be updated later)
         self.hours = self.days * 24
         self.time_range = np.linspace(0, self.days, self.hours)
         self.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h) for h in range(self.hours)]
@@ -50,18 +50,25 @@ class MicrogridReportGenerator:
         self.grid_electricity_price = 0.12  # $/kWh
         self.grid_export_price = 0.05  # $/kWh
         
-        # If a load data file is provided, read it now:
-        self.load_data = None
+        # If a load data file is provided, read and prepare actual load data:
         if load_data_file is not None:
             try:
-                # If load_data_file is a BytesIO (from streamlit uploader), pass it directly
-                self.load_data = pd.read_excel(load_data_file, parse_dates=['timestamp'])
-                self.load_data.set_index('timestamp', inplace=True)
-                self.load_data = self.load_data.resample("H").mean().interpolate()
+                # Read the Excel file; it is expected that:
+                # Column A: station name, Column B: station type,
+                # Columns C–Z: 24 hourly load values
+                df_load = pd.read_excel(load_data_file)
+                # Sum the load across all stations (rows) for each hour (columns from the third column onward)
+                daily_load = df_load.iloc[:, 2:].sum(axis=0).values  # yields 24 values
+                # Create a DataFrame for a single day load curve
+                date_index = pd.date_range(start="2025-01-01", periods=24, freq="H")
+                self.original_daily_load = pd.DataFrame({'load': daily_load}, index=date_index)
             except Exception as e:
                 print(f"Error reading load data file: {e}")
+                self.original_daily_load = None
+        else:
+            self.original_daily_load = None
         
-        # Generate data
+        # Generate data (load profile, renewable profiles, run simulation, etc.)
         self.generate_data()
         
         # Create report directory
@@ -70,19 +77,10 @@ class MicrogridReportGenerator:
     
     def generate_data(self):
         """Generate all data needed for the report"""
-        # Generate solar profile
         self.generate_solar_profile()
-        
-        # Generate wind profile
         self.generate_wind_profile()
-        
-        # Generate load profile
         self.generate_load_profile()
-        
-        # Run simulation
         self.run_simulation()
-        
-        # Calculate LCOE
         self.calculate_lcoe()
     
     def generate_solar_profile(self):
@@ -147,38 +145,24 @@ class MicrogridReportGenerator:
     
     def generate_load_profile(self):
         """Generate load profile using actual data if available, otherwise synthetic"""
-        if self.load_data is not None:
-            # Use actual load data
-            # Ensure we have at least self.hours of data; otherwise, adjust simulation period or loop the data
-            load_values = self.load_data['load'].to_numpy()
-            if len(load_values) >= self.hours:
-                self.load_profile = load_values[:self.hours]
-            else:
-                # Loop data if not enough values
-                repeats = int(np.ceil(self.hours / len(load_values)))
-                self.load_profile = np.tile(load_values, repeats)[:self.hours]
+        if self.original_daily_load is not None:
+            # Repeat the one-day load curve for the whole simulation period
+            daily_load = self.original_daily_load['load'].values  # length = 24
+            self.load_profile = np.tile(daily_load, self.days)
         else:
-            # Synthetic load profile (existing code)
+            # Synthetic load profile (your existing code)
             hours_of_day = np.array([h % 24 for h in range(self.hours)])
             days = np.array([h // 24 for h in range(self.hours)])
             days_of_week = np.array([d % 7 for d in days])
-            
-            # Create control points for the daily load curve (hour, load factor)
             control_points_x = [0, 6, 9, 12, 15, 18, 21, 24]
             control_points_y = [0.4, 0.35, 0.65, 0.8, 0.75, 0.95, 0.7, 0.4]
-            
-            # Create spline for daily pattern with periodic boundary conditions
             cs = CubicSpline(control_points_x, control_points_y, bc_type='periodic')
             daily_pattern = cs(hours_of_day)
-            
-            # Apply weekday/weekend pattern
             weekday_factor = np.ones(self.hours)
             for h in range(self.hours):
-                if days_of_week[h] >= 5:  # Weekend
+                if days_of_week[h] >= 5:
                     weekday_factor[h] = 0.8
-            # Apply some random noise
             noise = 0.05 * np.random.randn(self.hours)
-            
             self.load_profile = self.peak_load * daily_pattern * weekday_factor * (1 + noise)
             self.load_profile = np.maximum(0, self.load_profile)
 
@@ -437,8 +421,8 @@ class MicrogridReportGenerator:
             f"Min SOC: {min_soc:.1f}%\n"
             f"Max SOC: {max_soc:.1f}%\n"
             f"Avg SOC: {avg_soc:.1f}%\n"
-            f"Total Charge: {np.sum(self.battery_charge):.1f} kWh\n"
-            f"Total Discharge: {np.sum(self.battery_discharge):.1f} kWh\n"
+            f"Total Charge: {np.sum(self.battery_charge)::.1f} kWh\n"
+            f"Total Discharge: {np.sum(self.battery_discharge)::.1f} kWh\n"
             f"Equivalent Cycles: {self.battery_cycles:.2f}"
         )
         
@@ -1055,13 +1039,13 @@ class MicrogridReportGenerator:
         return df
 
     def create_load_data_plot(self):
-        """Create a plot for the original load data from the Excel file."""
-        if self.load_data is not None:
+        """Create a plot for the original daily load data from the Excel file"""
+        if self.original_daily_load is not None:
             fig, ax = plt.subplots(figsize=(14, 6))
-            ax.plot(self.load_data.index, self.load_data['load'], 'b-', label='Uploaded Load Data')
+            ax.plot(self.original_daily_load.index, self.original_daily_load['load'], 'b-', label='Daily Load Data')
             ax.set_xlabel('Timestamp')
             ax.set_ylabel('Load (kW)')
-            ax.set_title('Load Data from Excel')
+            ax.set_title('Daily Load Data from Excel')
             ax.legend()
             ax.grid(True)
             plt.xticks(rotation=45)
