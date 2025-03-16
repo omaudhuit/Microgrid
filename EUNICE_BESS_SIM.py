@@ -21,7 +21,7 @@ class MicrogridReportGenerator:
     """
     Generate static reports and visualizations for microgrid analysis.
     """
-    def __init__(self, scenario_name="Base Scenario"):
+    def __init__(self, scenario_name="Base Scenario", load_data_file=None):
         self.scenario_name = scenario_name
         
         # Simulation parameters
@@ -49,6 +49,17 @@ class MicrogridReportGenerator:
         self.discount_rate = 0.06  # 6%
         self.grid_electricity_price = 0.12  # $/kWh
         self.grid_export_price = 0.05  # $/kWh
+        
+        # If a load data file is provided, read it now:
+        self.load_data = None
+        if load_data_file is not None:
+            try:
+                # If load_data_file is a BytesIO (from streamlit uploader), pass it directly
+                self.load_data = pd.read_excel(load_data_file, parse_dates=['timestamp'])
+                self.load_data.set_index('timestamp', inplace=True)
+                self.load_data = self.load_data.resample("H").mean().interpolate()
+            except Exception as e:
+                print(f"Error reading load data file: {e}")
         
         # Generate data
         self.generate_data()
@@ -135,32 +146,41 @@ class MicrogridReportGenerator:
         self.wind_profile = np.maximum(0, self.wind_capacity * wind_daily * daily_factor)
     
     def generate_load_profile(self):
-        """Generate load profile with daily and weekly patterns"""
-        hours_of_day = np.array([h % 24 for h in range(self.hours)])
-        days = np.array([h // 24 for h in range(self.hours)])
-        days_of_week = np.array([d % 7 for d in days])
-        
-        # Create control points for the daily load curve (hour, load factor)
-        # Updated control points for periodicity
-        control_points_x = [0, 6, 9, 12, 15, 18, 21, 24]
-        control_points_y = [0.4, 0.35, 0.65, 0.8, 0.75, 0.95, 0.7, 0.4]
-        
-        # Create spline for daily pattern with periodic boundary conditions
-        cs = CubicSpline(control_points_x, control_points_y, bc_type='periodic')
-        daily_pattern = cs(hours_of_day)
-        
-        # Apply weekday/weekend pattern
-        weekday_factor = np.ones(self.hours)
-        for h in range(self.hours):
-            if days_of_week[h] >= 5:  # Weekend
-                weekday_factor[h] = 0.8  # Lower load on weekends
-        
-        # Apply some random noise
-        noise = 0.05 * np.random.randn(self.hours)
-        
-        # Calculate final load
-        self.load_profile = self.peak_load * daily_pattern * weekday_factor * (1 + noise)
-        self.load_profile = np.maximum(0, self.load_profile)  # Ensure non-negative
+        """Generate load profile using actual data if available, otherwise synthetic"""
+        if self.load_data is not None:
+            # Use actual load data
+            # Ensure we have at least self.hours of data; otherwise, adjust simulation period or loop the data
+            load_values = self.load_data['load'].to_numpy()
+            if len(load_values) >= self.hours:
+                self.load_profile = load_values[:self.hours]
+            else:
+                # Loop data if not enough values
+                repeats = int(np.ceil(self.hours / len(load_values)))
+                self.load_profile = np.tile(load_values, repeats)[:self.hours]
+        else:
+            # Synthetic load profile (existing code)
+            hours_of_day = np.array([h % 24 for h in range(self.hours)])
+            days = np.array([h // 24 for h in range(self.hours)])
+            days_of_week = np.array([d % 7 for d in days])
+            
+            # Create control points for the daily load curve (hour, load factor)
+            control_points_x = [0, 6, 9, 12, 15, 18, 21, 24]
+            control_points_y = [0.4, 0.35, 0.65, 0.8, 0.75, 0.95, 0.7, 0.4]
+            
+            # Create spline for daily pattern with periodic boundary conditions
+            cs = CubicSpline(control_points_x, control_points_y, bc_type='periodic')
+            daily_pattern = cs(hours_of_day)
+            
+            # Apply weekday/weekend pattern
+            weekday_factor = np.ones(self.hours)
+            for h in range(self.hours):
+                if days_of_week[h] >= 5:  # Weekend
+                    weekday_factor[h] = 0.8
+            # Apply some random noise
+            noise = 0.05 * np.random.randn(self.hours)
+            
+            self.load_profile = self.peak_load * daily_pattern * weekday_factor * (1 + noise)
+            self.load_profile = np.maximum(0, self.load_profile)
 
     
     def run_simulation(self):
@@ -644,7 +664,7 @@ class MicrogridReportGenerator:
             f"Total Load: {self.total_load:.1f} kWh\n"
             f"PV Generation: {self.pv_generation:.1f} kWh\n"
             f"Wind Generation: {self.wind_generation:.1f} kWh\n"
-            f"Battery Throughput: {np.sum(self.battery_discharge):.1f} kWh\n"
+            f"Battery Throughput: {np.sum(self.battery_discharge)::.1f} kWh\n"
             f"Grid Import: {self.total_grid_import:.1f} kWh\n"
             f"Grid Export: {self.total_grid_export:.1f} kWh\n"
             f"Renewable Fraction: {self.renewables_fraction:.1f}%\n"
@@ -783,7 +803,7 @@ class MicrogridReportGenerator:
             f.write(f"Grid Import: {self.total_grid_import:.1f} kWh ({100*self.total_grid_import/self.total_load:.1f}% of load)\n")
             f.write(f"Grid Export: {self.total_grid_export:.1f} kWh\n")
             f.write(f"Battery Charge: {np.sum(self.battery_charge):.1f} kWh\n")
-            f.write(f"Battery Discharge: {np.sum(self.battery_discharge):.1f} kWh\n")
+            f.write(f"Battery Discharge: {np.sum(self.battery_discharge)::.1f} kWh\n")
             f.write(f"Battery Cycles: {self.battery_cycles:.2f}\n\n")
             
             f.write("PERFORMANCE METRICS\n")
@@ -1034,17 +1054,35 @@ class MicrogridReportGenerator:
         df = pd.DataFrame(results, columns=['PV Capacity', 'Wind Capacity', 'Battery Capacity', 'LCOE'])
         return df
 
+    def create_load_data_plot(self):
+        """Create a plot for the original load data from the Excel file."""
+        if self.load_data is not None:
+            fig, ax = plt.subplots(figsize=(14, 6))
+            ax.plot(self.load_data.index, self.load_data['load'], 'b-', label='Uploaded Load Data')
+            ax.set_xlabel('Timestamp')
+            ax.set_ylabel('Load (kW)')
+            ax.set_title('Load Data from Excel')
+            ax.legend()
+            ax.grid(True)
+            plt.xticks(rotation=45)
+            fig.tight_layout()
+            fig.savefig(f"{self.report_dir}/load_data.png")
+            return fig
+        else:
+            return None
+
 if __name__ == "__main__":
     st.title("Microgrid Analysis Interactive Report")
-
-    # Sidebar: Scenario & Input Parameters (shared across tabs)
-    st.sidebar.header("Scenario & Input Parameters")
+    
+    # Sidebar: allow load data upload
+    load_file = st.sidebar.file_uploader("Upload Load Data Excel (with 'timestamp' and 'load' columns)", type=['xlsx'])
+    
+    # Choose scenario and adjust parameters (existing code)...
+    # For example:
     scenario_option = st.sidebar.selectbox(
         "Select Scenario",
         ["Custom", "Base Scenario", "High PV Scenario", "High Wind Scenario", "High Storage Scenario"]
     )
-
-    # Set system parameters based on scenario selection
     if scenario_option == "Custom":
         pv_capacity = st.sidebar.number_input("PV Capacity (kW)", min_value=0, value=150)
         wind_capacity = st.sidebar.number_input("Wind Capacity (kW)", min_value=0, value=100)
@@ -1052,6 +1090,7 @@ if __name__ == "__main__":
         battery_power = st.sidebar.number_input("Battery Power (kW)", min_value=0, value=75)
         peak_load = st.sidebar.number_input("Peak Load (kW)", min_value=0, value=180)
     else:
+        # Preset values for other scenarios
         if scenario_option == "Base Scenario":
             pv_capacity, wind_capacity, battery_capacity = 150, 100, 300
             battery_power, peak_load = 75, 180
@@ -1067,15 +1106,13 @@ if __name__ == "__main__":
 
     simulation_days = st.sidebar.number_input("Simulation Days", min_value=1, value=7)
 
-    # Create separate tabs for Simulation and Sensitivity Analysis
     simulation_tab, sensitivity_tab = st.tabs(["Simulation", "Sensitivity Analysis"])
 
     with simulation_tab:
         st.subheader("Run Simulation and Generate Report")
         if st.button("Run Simulation"):
             with st.spinner("Running simulation and generating report..."):
-                # Instantiate and update scenario parameters
-                scenario = MicrogridReportGenerator("Custom")
+                scenario = MicrogridReportGenerator("Custom", load_data_file=load_file)
                 scenario.days = simulation_days
                 scenario.hours = simulation_days * 24
                 scenario.time_range = np.linspace(0, simulation_days, simulation_days * 24)
@@ -1086,12 +1123,20 @@ if __name__ == "__main__":
                 scenario.battery_capacity = battery_capacity
                 scenario.battery_power = battery_power
                 scenario.peak_load = peak_load
-
-                # Re-generate data and create report
+                
                 scenario.generate_data()
                 files = scenario.create_comprehensive_report()
             st.success("Simulation complete!")
-
+            
+            # If load data was uploaded, display its preview and plot
+            if scenario.load_data is not None:
+                st.subheader("Uploaded Load Data Preview")
+                st.dataframe(scenario.load_data.head())
+                st.subheader("Load Data Curve")
+                load_fig = scenario.create_load_data_plot()
+                if load_fig is not None:
+                    st.pyplot(load_fig)
+            
             # Display the Report Summary
             try:
                 with open(files['summary'], 'r') as f:
@@ -1100,143 +1145,16 @@ if __name__ == "__main__":
                 st.text_area("Summary", summary_text, height=300)
             except Exception as e:
                 st.error(f"Could not load summary: {e}")
-
-            # Display Generated Figures
+            
+            # Display Generated Figures (existing code)
             st.subheader("Energy Flow Diagram")
             st.pyplot(scenario.create_energy_flow_plot())
-
             st.subheader("Battery State of Charge")
             st.pyplot(scenario.create_battery_soc_plot())
-
             st.subheader("Average Daily Profiles")
             st.pyplot(scenario.create_daily_profile_plot())
-
             st.subheader("Energy Balance Diagram")
             st.pyplot(scenario.create_energy_balance_diagram())
-
             st.subheader("LCOE Breakdown")
             st.pyplot(scenario.create_lcoe_breakdown())
-
-    with sensitivity_tab:
-        st.subheader("Multiway Sensitivity Analysis on LCOE")
-
-        if st.button("Run Sensitivity Analysis"):
-            with st.spinner("Performing sensitivity analysis..."):
-                # Define ranges for key parameters
-                pv_range = np.linspace(100, 300, 5)           # kW
-                wind_range = np.linspace(50, 250, 5)          # kW
-                battery_range = np.linspace(200, 600, 5)      # kWh
-
-                # Create a base scenario with provided simulation settings
-                base_scenario = MicrogridReportGenerator("Base")
-                base_scenario.days = simulation_days
-                base_scenario.hours = simulation_days * 24
-                base_scenario.time_range = np.linspace(0, simulation_days, simulation_days * 24)
-                base_scenario.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h) 
-                                       for h in range(simulation_days * 24)]
-                base_scenario.battery_power = battery_power
-                base_scenario.peak_load = peak_load
-
-                # Run grid search over PV, Wind, and Battery capacities
-                df_sens = base_scenario.perform_sensitivity_analysis(pv_range, wind_range, battery_range)
-
-                # Create a heatmap for each battery capacity level with larger fonts and figure size
-                fig_heat, axes = plt.subplots(1, len(battery_range), figsize=(24, 6), sharey=True)
-                for i, batt in enumerate(battery_range):
-                    sub_df = df_sens[np.isclose(df_sens['Battery Capacity'], batt)]
-                    pivot = sub_df.pivot(index='Wind Capacity', columns='PV Capacity', values='LCOE')
-                    sns.heatmap(pivot, ax=axes[i], annot=True, fmt=".4f", cmap="viridis",
-                                cbar=i==len(battery_range)-1, annot_kws={"size":12})
-                    axes[i].set_title(f"Battery Capacity {batt:.0f} kWh", fontsize=14)
-                    axes[i].tick_params(axis='both', labelsize=12)
-                fig_heat.tight_layout()
-                st.pyplot(fig_heat)
-                st.success("Multiway sensitivity analysis complete!")
-
-        st.markdown("---")
-        st.subheader("Tornado Chart: One‐Way Sensitivity of LCOE")
-
-        if st.button("Run Tornado Analysis"):
-            with st.spinner("Performing tornado analysis..."):
-                # Baseline input parameters & scenario
-                baseline = MicrogridReportGenerator("Baseline")
-                baseline.days = simulation_days
-                baseline.hours = simulation_days * 24
-                baseline.time_range = np.linspace(0, simulation_days, simulation_days * 24)
-                baseline.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h)
-                                  for h in range(simulation_days * 24)]
-                baseline.pv_capacity = pv_capacity
-                baseline.wind_capacity = wind_capacity
-                baseline.battery_capacity = battery_capacity
-                baseline.battery_power = battery_power
-                baseline.peak_load = peak_load
-                baseline.generate_data()
-                baseline_lcoe = baseline.lcoe
-
-                # Define factors for one-way variation
-                variation_factors = np.array([0.8, 0.9, 1.0, 1.1, 1.2])
-                sensitivity_results = {}
-
-                for param, base_val in [('PV Capacity', pv_capacity),
-                                        ('Wind Capacity', wind_capacity),
-                                        ('Battery Capacity', battery_capacity)]:
-                    lcoe_vals = []
-                    for factor in variation_factors:
-                        sim = MicrogridReportGenerator("Tornado")
-                        sim.days = simulation_days
-                        sim.hours = simulation_days * 24
-                        sim.time_range = np.linspace(0, simulation_days, simulation_days * 24)
-                        sim.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h)
-                                     for h in range(simulation_days * 24)]
-                        # Set the baseline inputs
-                        sim.pv_capacity = pv_capacity
-                        sim.wind_capacity = wind_capacity
-                        sim.battery_capacity = battery_capacity
-                        sim.battery_power = battery_power
-                        sim.peak_load = peak_load
-                        # Overwrite the parameter under study
-                        if param == "PV Capacity":
-                            sim.pv_capacity = base_val * factor
-                        elif param == "Wind Capacity":
-                            sim.wind_capacity = base_val * factor
-                        elif param == "Battery Capacity":
-                            sim.battery_capacity = base_val * factor
-
-                        sim.generate_data()
-                        lcoe_vals.append(sim.lcoe)
-                    sensitivity_results[param] = (variation_factors * base_val, lcoe_vals)
-
-                # Create tornado chart as horizontal bar chart
-                fig_tornado, ax = plt.subplots(figsize=(10, 8))
-                bar_height = 0.25
-                y_ticks = []
-                y_labels = []
-                y_positions = []
-                current_pos = 0
-
-                # For each parameter perform plotting
-                for param, (x_vals, lcoe_vals) in sensitivity_results.items():
-                    # Calculate deviations from baseline (in $/kWh difference)
-                    deviations = np.array(lcoe_vals) - baseline_lcoe
-                    # Order the factors such that the maximum deviation appears at top
-                    sort_order = np.argsort(deviations)
-                    sorted_deps = deviations[sort_order]
-                    sorted_labels = [f"{param} = {x_vals[i]:.0f}" for i in sort_order]
-                    # Plot horizontal bars
-                    ax.barh(np.arange(current_pos, current_pos + len(sorted_deps)), sorted_deps,
-                            height=bar_height, align='center', color='skyblue', edgecolor='black')
-                    # Record positions and labels
-                    for i in range(len(sorted_deps)):
-                        y_ticks.append(current_pos + i)
-                        y_labels.append(sorted_labels[i])
-                    current_pos += len(sorted_deps) + 1  # gap between groups
-
-                ax.axvline(0, color='black', linewidth=1.5)
-                ax.set_xlabel("LCOE Change ($/kWh)", fontsize=12)
-                ax.set_title("Tornado Chart - One-Way Sensitivity of LCOE", fontsize=14)
-                ax.set_yticks(y_ticks)
-                ax.set_yticklabels(y_labels, fontsize=10)
-                fig_tornado.tight_layout()
-
-                st.pyplot(fig_tornado)
-                st.success("Tornado analysis complete!")
+    ...
