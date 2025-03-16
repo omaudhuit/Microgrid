@@ -373,7 +373,7 @@ class MicrogridReportGenerator:
         # Plot SOC with gradient fill
         for i in range(len(dates)-1):
             ax.fill_between([dates[i], dates[i+1]], [0, 0], [soc_percent[i], soc_percent[i+1]],
-                           color=cmap(norm(soc_percent[i])))
+                            color=cmap(norm(soc_percent[i])))
         
         # Plot SOC line
         ax.plot(dates, soc_percent, 'k-', linewidth=2, label='SOC')
@@ -410,19 +410,15 @@ class MicrogridReportGenerator:
         # Add grid
         ax.grid(True, alpha=0.3)
         
-        # Add SOC stats
-        min_soc = np.min(soc_percent)
-        max_soc = np.max(soc_percent)
-        avg_soc = np.mean(soc_percent)
-        
+        # Add SOC stats with corrected f-string formatting:
         stats_text = (
             f"Battery Capacity: {self.battery_capacity:.0f} kWh\n"
             f"Battery Power: {self.battery_power:.0f} kW\n"
-            f"Min SOC: {min_soc:.1f}%\n"
-            f"Max SOC: {max_soc:.1f}%\n"
-            f"Avg SOC: {avg_soc:.1f}%\n"
-            f"Total Charge: {np.sum(self.battery_charge)::.1f} kWh\n"
-            f"Total Discharge: {np.sum(self.battery_discharge)::.1f} kWh\n"
+            f"Min SOC: {np.min(soc_percent):.1f}%\n"
+            f"Max SOC: {np.max(soc_percent):.1f}%\n"
+            f"Avg SOC: {np.mean(soc_percent):.1f}%\n"
+            f"Total Charge: {np.sum(self.battery_charge):.1f} kWh\n"
+            f"Total Discharge: {np.sum(self.battery_discharge):.1f} kWh\n"
             f"Equivalent Cycles: {self.battery_cycles:.2f}"
         )
         
