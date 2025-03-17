@@ -639,7 +639,7 @@ class MicrogridReportGenerator:
             f"Total Load: {self.total_load:.1f} kWh\n"
             f"PV Generation: {self.pv_generation:.1f} kWh\n"
             f"Wind Generation: {self.wind_generation:.1f} kWh\n"
-            f"Battery Throughput: {np.sum(self.battery_discharge):.1f} kWh\n"
+            f"Battery Throughput: {float(np.sum(self.battery_discharge)):.1f} kWh\n"
             f"Grid Import: {self.total_grid_import:.1f} kWh\n"
             f"Grid Export: {self.total_grid_export:.1f} kWh\n"
             f"Renewable Fraction: {self.renewables_fraction:.1f}%\n"
@@ -777,8 +777,8 @@ class MicrogridReportGenerator:
             f.write(f"Total Renewable Generation: {self.pv_generation+self.wind_generation:.1f} kWh ({100*(self.pv_generation+self.wind_generation)/self.total_load:.1f}% of load)\n")
             f.write(f"Grid Import: {self.total_grid_import:.1f} kWh ({100*self.total_grid_import/self.total_load:.1f}% of load)\n")
             f.write(f"Grid Export: {self.total_grid_export:.1f} kWh\n")
-            f.write(f"Battery Charge: {np.sum(self.battery_charge):.1f} kWh\n")
-            f.write(f"Battery Discharge: {np.sum(self.battery_discharge):.1f} kWh\n")
+            f.write(f"Battery Charge: {np.sum(self.battery_charge)::.1f} kWh\n")
+            f.write(f"Battery Discharge: {np.sum(self.battery_discharge)::.1f} kWh\n")
             f.write(f"Battery Cycles: {self.battery_cycles:.2f}\n\n")
             
             f.write("PERFORMANCE METRICS\n")
