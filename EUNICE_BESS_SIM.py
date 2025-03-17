@@ -689,8 +689,7 @@ class MicrogridReportGenerator:
                 textprops={'fontsize': 12})
         ax1.set_title('Cost Components Breakdown')
         
-        # Create bar chart for LCOE components
-        # Convert to LCOE by dividing by lifetime energy
+        # Create bar chart for LCOE components (in cents/kWh)
         lifetime_energy = self.cost_components['Annual Energy'] * self.project_lifetime
         lcoe_components = [(label, val / lifetime_energy * 100) for label, val in components]  # cents/kWh
         
@@ -701,51 +700,38 @@ class MicrogridReportGenerator:
         lcoe_labels = [c[0] for c in lcoe_components]
         lcoe_values = [c[1] for c in lcoe_components]
         
-        # Plot horizontal bar chart
         bars = ax2.barh(lcoe_labels, lcoe_values, color=plt.cm.tab10.colors)
-        
-        # Add data labels
         for bar in bars:
             width = bar.get_width()
-            ax2.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
-                     f'{width:.2f}¢', ha='left', va='center')
+            ax2.text(width + 0.1, bar.get_y() + bar.get_height()/2, f'{width:.2f}¢', ha='left', va='center')
         
         ax2.set_xlabel('Cost (¢/kWh)')
         ax2.set_title('LCOE Components')
         ax2.grid(axis='x', alpha=0.3)
         
-        # Add total LCOE line
-        ax2.axvline(x=self.lcoe * 100, color='red', linestyle='--', 
-                    label=f'Total LCOE: {self.lcoe*100:.2f}¢/kWh')
+        ax2.axvline(x=self.lcoe * 100, color='red', linestyle='--', label=f'Total LCOE: {self.lcoe*100:.2f}¢/kWh')
         ax2.legend()
         
-        # Add financial summary
-        summary_text = (
+        plt.figtext(0.5, 0.02, 
             f"System Costs:\n"
-            f"PV: ${self.cost_components['PV Capital']:,.0f} (${self.pv_cost_per_kw:,.0f}/kW)\n"
-            f"Wind: ${self.cost_components['Wind Capital']:,.0f} (${self.wind_cost_per_kw:,.0f}/kW)\n"
-            f"Battery: ${self.cost_components['Battery Capital']:,.0f} (${self.battery_cost_per_kwh:,.0f}/kWh)\n"
-            f"Total Capital: ${sum(values):,.0f}\n\n"
-            f"Annual O&M: ${self.cost_components['Annual O&M']:,.0f}/year\n"
+            f"PV: €{self.cost_components['PV Capital']:,.0f} ({self.pv_cost_per_kw:,.0f}€/kW)\n"
+            f"Wind: €{self.cost_components['Wind Capital']:,.0f} ({self.wind_cost_per_kw:,.0f}€/kW)\n"
+            f"Battery: €{self.cost_components['Battery Capital']:,.0f} ({self.battery_cost_per_kwh:,.0f}€/kWh)\n"
+            f"Total Capital: €{sum(values):,.0f}\n\n"
+            f"Annual O&M: €{self.cost_components['Annual O&M']:,.0f}/year\n"
             f"Annual Energy: {self.cost_components['Annual Energy']:,.0f} kWh/year\n"
             f"Project Lifetime: {self.project_lifetime} years\n"
             f"Discount Rate: {self.discount_rate*100:.1f}%\n"
-            f"LCOE: ${self.lcoe:.4f}/kWh"
+            f"LCOE: €{self.lcoe:.4f}/kWh",
+            fontsize=10, ha='center', va='bottom',
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray', boxstyle='round,pad=0.5')
         )
         
-        plt.figtext(0.5, 0.02, summary_text, fontsize=10, ha='center', va='bottom',
-                   bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray', boxstyle='round,pad=0.5'))
-        
-        # Adjust layout
         plt.tight_layout(rect=[0, 0.1, 1, 0.9])
         plt.subplots_adjust(wspace=0.3)
-        
-        # Add title
         plt.suptitle(f'Cost Analysis - {self.scenario_name}', fontsize=16, y=0.98)
         
-        # Save figure
         fig.savefig(f"{self.report_dir}/cost_analysis.png")
-        
         return fig
 
     
@@ -781,7 +767,7 @@ class MicrogridReportGenerator:
             f.write(f"Total Renewable Generation: {self.pv_generation+self.wind_generation:.1f} kWh ({100*(self.pv_generation+self.wind_generation)/self.total_load:.1f}% of load)\n")
             f.write(f"Grid Import: {self.total_grid_import:.1f} kWh ({100*self.total_grid_import/self.total_load:.1f}% of load)\n")
             f.write(f"Grid Export: {self.total_grid_export:.1f} kWh\n")
-            f.write(f"Battery Charge: {np.sum(self.battery_charge):.1f} kWh\n")
+            f.write(f"Battery Charge: {np.sum(self.battery_charge)::.1f} kWh\n")
             f.write(f"Battery Discharge: {np.sum(self.battery_discharge):.1f} kWh\n")
             f.write(f"Battery Cycles: {self.battery_cycles:.2f}\n\n")
             
@@ -793,19 +779,19 @@ class MicrogridReportGenerator:
             
             f.write("FINANCIAL METRICS\n")
             f.write("-" * 30 + "\n")
-            f.write(f"PV Cost: ${self.pv_capacity*self.pv_cost_per_kw:,.0f} (${self.pv_cost_per_kw:,.0f}/kW)\n")
-            f.write(f"Wind Cost: ${self.wind_capacity*self.wind_cost_per_kw:,.0f} (${self.wind_cost_per_kw:,.0f}/kW)\n")
-            f.write(f"Battery Cost: ${self.battery_capacity*self.battery_cost_per_kwh:,.0f} (${self.battery_cost_per_kwh:,.0f}/kWh)\n")
-            f.write(f"Total Capital Cost: ${self.pv_capacity*self.pv_cost_per_kw + self.wind_capacity*self.wind_cost_per_kw + self.battery_capacity*self.battery_cost_per_kwh:,.0f}\n")
-            f.write(f"Annual O&M Cost: ${self.cost_components['Annual O&M']:,.0f}\n")
-            f.write(f"Annual Grid Cost: ${self.cost_components['Annual Grid Cost']:,.0f}\n")
-            f.write(f"Annual Export Revenue: ${self.cost_components['Annual Export Revenue']:,.0f}\n")
-            f.write(f"Levelized Cost of Energy (LCOE): ${self.lcoe:.4f}/kWh\n\n")
+            f.write(f"PV Cost: €{self.pv_capacity*self.pv_cost_per_kw:,.0f} ({self.pv_cost_per_kw:,.0f}€/kW)\n")
+            f.write(f"Wind Cost: €{self.wind_capacity*self.wind_cost_per_kw:,.0f} ({self.wind_cost_per_kw:,.0f}€/kW)\n")
+            f.write(f"Battery Cost: €{self.battery_capacity*self.battery_cost_per_kwh:,.0f} ({self.battery_cost_per_kwh:,.0f}€/kWh)\n")
+            f.write(f"Total Capital Cost: €{self.pv_capacity*self.pv_cost_per_kw + self.wind_capacity*self.wind_cost_per_kw + self.battery_capacity*self.battery_cost_per_kwh:,.0f}\n")
+            f.write(f"Annual O&M Cost: €{self.cost_components['Annual O&M']:,.0f}\n")
+            f.write(f"Annual Grid Cost: €{self.cost_components['Annual Grid Cost']:,.0f}\n")
+            f.write(f"Annual Export Revenue: €{self.cost_components['Annual Export Revenue']:,.0f}\n")
+            f.write(f"Levelized Cost of Energy (LCOE): €{self.lcoe:.4f}/kWh\n\n")
             
             f.write("CONCLUSION\n")
             f.write("-" * 30 + "\n")
             f.write(f"The {self.scenario_name} microgrid configuration achieves a renewable energy fraction of {self.renewables_fraction:.1f}% ")
-            f.write(f"with an LCOE of ${self.lcoe:.4f}/kWh. ")
+            f.write(f"with an LCOE of €{self.lcoe:.4f}/kWh. ")
             
             if self.renewables_fraction > 90:
                 f.write("The system achieves very high renewable penetration, ")
