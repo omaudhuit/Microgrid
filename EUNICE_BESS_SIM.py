@@ -23,14 +23,14 @@ class MicrogridReportGenerator:
     """
     def __init__(self, scenario_name="Base Scenario", load_data_file=None):
         self.scenario_name = scenario_name
-        
+
         # Simulation parameters
-        self.days = 7  # One week simulation (default, can be updated later)
+        self.days = 7  # One week simulation (default)
         self.hours = self.days * 24
         self.time_range = np.linspace(0, self.days, self.hours)
         self.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h) for h in range(self.hours)]
-        
-        # System parameters
+
+        # System parameters, financial parameters, etc.
         self.pv_capacity = 150  # kW
         self.wind_capacity = 100  # kW
         self.battery_capacity = 300  # kWh
@@ -39,8 +39,6 @@ class MicrogridReportGenerator:
         self.battery_soc_min = 0.1
         self.battery_soc_initial = 0.5
         self.peak_load = 180  # kW
-        
-        # Financial parameters
         self.pv_cost_per_kw = 1000  # $/kW
         self.wind_cost_per_kw = 1500  # $/kW
         self.battery_cost_per_kwh = 400  # $/kWh
@@ -49,15 +47,16 @@ class MicrogridReportGenerator:
         self.discount_rate = 0.06  # 6%
         self.grid_electricity_price = 0.12  # $/kWh
         self.grid_export_price = 0.05  # $/kWh
-        
-        # If a load data file is provided, read and prepare actual load data:
+
+        # Always initialize original_daily_load to guarantee the attribute exists
+        self.original_daily_load = None
+
+        # If a load data file is provided, try to read it
         if load_data_file is not None:
             try:
-                # Read the Excel file; it is expected that:
-                # Column A: station name, Column B: station type,
-                # Columns C–Z: 24 hourly load values
+                # Read the Excel file; expected columns: A: station name, B: station type, Columns C–Z: 24 hourly load values
                 df_load = pd.read_excel(load_data_file)
-                # Sum the load across all stations (rows) for each hour (columns from the third column onward)
+                # Sum the load across all stations for each hour (from the third column onward)
                 daily_load = df_load.iloc[:, 2:].sum(axis=0).values  # yields 24 values
                 # Create a DataFrame for a single day load curve
                 date_index = pd.date_range(start="2025-01-01", periods=24, freq="H")
@@ -65,13 +64,9 @@ class MicrogridReportGenerator:
             except Exception as e:
                 print(f"Error reading load data file: {e}")
                 self.original_daily_load = None
-        else:
-            self.original_daily_load = None
-        
-        # Generate data (load profile, renewable profiles, run simulation, etc.)
+
+        # Proceed to generate other data and create report directory
         self.generate_data()
-        
-        # Create report directory
         self.report_dir = f"microgrid_report_{scenario_name.replace(' ', '_')}"
         os.makedirs(self.report_dir, exist_ok=True)
     
@@ -644,7 +639,7 @@ class MicrogridReportGenerator:
             f"Total Load: {self.total_load:.1f} kWh\n"
             f"PV Generation: {self.pv_generation:.1f} kWh\n"
             f"Wind Generation: {self.wind_generation:.1f} kWh\n"
-            f"Battery Throughput: {np.sum(self.battery_discharge):.1f} kWh\n"
+            f"Battery Throughput: {np.sum(self.battery_discharge)::.1f} kWh\n"
             f"Grid Import: {self.total_grid_import:.1f} kWh\n"
             f"Grid Export: {self.total_grid_export:.1f} kWh\n"
             f"Renewable Fraction: {self.renewables_fraction:.1f}%\n"
