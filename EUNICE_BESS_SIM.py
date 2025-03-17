@@ -55,7 +55,7 @@ class MicrogridReportGenerator:
         if load_data_file is not None:
             try:
                 # Read the Excel file; expected columns: A: station name, B: station type, Columns C–Z: 24 hourly load values
-                df_load = pd.read_excel(load_data_file)
+                df_load = pd.read_excel(load_data_file, engine='openpyxl')
                 st.write("Excel file preview:", df_load.head())  # Debug: show first few rows
                 # Sum the load across all stations for each hour (from the third column onward)
                 daily_load = df_load.iloc[:, 2:].sum(axis=0).values  # yields 24 values
