@@ -1,3 +1,4 @@
+import math
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -11,145 +12,364 @@ import matplotlib.gridspec as gridspec
 from matplotlib.patches import Patch
 import os
 
-# Set style for better visualization
-plt.style.use('ggplot')
-sns.set_context("talk")
-plt.rcParams['figure.figsize'] = [12, 8]
-plt.rcParams['savefig.dpi'] = 300
+##############################
+# AFT_01 FUNCTIONS (Excel Calculator)
+##############################
+def IF(condition, true_val, false_val):
+    return true_val if condition else false_val
 
+def PMT(rate, nper, pv):
+    if rate == 0:
+        return pv / nper
+    return (rate * pv) / (1 - (1 + rate) ** (-nper))
+
+def compute_residential():
+    # Input Values
+    annual_consumption = 11536         # kWh
+    consumption_time = "Απόγευμα-Βράδυ"  # options: "Πρωί-Μεσημέρι" or "Απόγευμα-Βράδυ"
+    supply_power = 35                  # kVA
+    tariff_category = "Γ1"             # e.g., "Γ1" or "Γ1Ν"
+    normal_tariff = 0.3                # €/kWh
+    night_tariff = 0.08                # €/kWh
+    region = "Δυτική Ελλάδα"           # region name
+    roof_type = "Στέγη"                # roof type
+    orientation = "ΝΔ"                 # orientation
+    available_area = 75                # available roof area
+    battery_choice = "Όχι"             # battery-saving effect flag
+    battery_capacity_choice = 12       # user battery capacity selection
+    storage_decision = "Ναι"           # whether storage is used
+
+    # Intermediate Calculations
+    I7 = IF(consumption_time == "Πρωί-Μεσημέρι", 0.7, 0.5)
+    I8 = 1 - I7
+
+    if region in ["Νότιο Αιγαίο", "Κρήτη"]:
+        I11 = 1600
+    elif region in ["Αττική", "Δυτική Ελλάδα", "Ιόνιοι Νήσοι"]:
+        I11 = 1550
+    elif region == "Πελοπόννησος":
+        I11 = 1500
+    elif region in ["Ήπειρος", "Θεσσαλία", "Στερεά Ελλάδα"]:
+        I11 = 1450
+    else:
+        I11 = 1400
+
+    if roof_type == "Στέγη":
+        if orientation in ["Α", "Δ"]:
+            I10 = 0.85
+        elif orientation in ["ΝΑ", "ΝΔ"]:
+            I10 = 0.93
+        else:
+            I10 = 0.95
+    else:
+        I10 = 1.0
+
+    I12 = I11 * I10
+    L7 = annual_consumption / I12
+    L8 = 5 if supply_power <= 12 else 10.8
+    L9 = min(annual_consumption / I12, L8)
+    I9 = 0.7 if consumption_time == "Πρωί-Μεσημέρι" else 0.3
+    I13 = 7 if roof_type == "Ταράτσα" else 5
+    L10 = available_area / I13
+    L11 = min(L9, L10)
+    L12 = L11 * I12
+    L14 = L12 * (1 - I9) / 365
+    L15 = battery_capacity_choice
+    L16 = L15 if battery_choice == "Όχι" else L14
+
+    if tariff_category == "Γ1":
+        L17 = (normal_tariff + 0.046) * 1.06 * annual_consumption
+    elif tariff_category == "Γ1Ν":
+        L17 = ((normal_tariff + 0.046) * I7 + (night_tariff + 0.01707) * I8) * 1.06 * annual_consumption
+    else:
+        L17 = None
+
+    if tariff_category == "Γ1Ν":
+        O7 = (normal_tariff * I7 + night_tariff * I8)
+    else:
+        O7 = normal_tariff
+    O8 = 0.046
+    O9 = (L12 * O7 + O8 * L12 * I9) * 1.06
+    O10 = L16 * 365 * O8 * 1.06
+    O11 = (O9 + O10) if storage_decision == "Ναι" else O9
+    O15 = L17
+    O16 = O15 - O9
+    O17 = O11
+
+    results = {
+        "Annual Consumption (kWh)": annual_consumption,
+        "I7 (Normal consumption fraction)": I7,
+        "I8 (Reduced consumption fraction)": I8,
+        "I11 (PV production factor by region)": I11,
+        "I10 (Production coefficient)": I10,
+        "I12 (Combined production factor)": I12,
+        "L7 (Required inverter power)": L7,
+        "L8 (Upper power limit)": L8,
+        "L9 (Selected inverter power)": L9,
+        "I9 (PV production factor based on time)": I9,
+        "I13 (Area coefficient)": I13,
+        "L10 (Area-based capacity)": L10,
+        "L11 (Final inverter capacity)": L11,
+        "L12 (Annual PV production, kWh)": L12,
+        "L14 (Daily production for battery sizing)": L14,
+        "L15 (Battery capacity selection)": L15,
+        "L16 (Final battery capacity)": L16,
+        "L17 (Baseline electricity cost)": L17,
+        "O7 (Effective tariff)": O7,
+        "O8 (Cost factor)": O8,
+        "O9 (Estimated PV saving)": O9,
+        "O10 (Additional saving with battery)": O10,
+        "O11 (Total saving with system)": O11,
+        "O15 (Baseline cost)": O15,
+        "O16 (Cost saving difference)": O16,
+        "O17 (Final expected saving)": O17
+    }
+    return results
+
+def compute_loan():
+    power = 8                # kW
+    interest_rate = 0.06     # Annual interest rate
+    repayment_years = 5      # Loan term in years
+    battery_kWh = 12         # kWh
+    annual_saving = 656      # €/year saving
+    prepayment_fraction = 0.5
+
+    if power <= 5:
+        cost_per_kw = 2000
+    elif power <= 10:
+        cost_per_kw = 1500
+    elif power <= 20:
+        cost_per_kw = 1200
+    elif power <= 50:
+        cost_per_kw = 1000
+    elif power <= 100:
+        cost_per_kw = 850
+    else:
+        cost_per_kw = 750
+
+    cost_per_kWh = 800  # for the battery
+
+    pv_cost = power * cost_per_kw
+    monthly_saving = annual_saving / 12
+    battery_cost = cost_per_kWh * battery_kWh
+    estimated_loan = pv_cost + battery_cost
+    principal_for_loan = estimated_loan - prepayment_fraction * estimated_loan
+    monthly_payment = PMT(interest_rate / 12, repayment_years * 12, principal_for_loan)
+    half_loan = estimated_loan / 2
+
+    results = {
+        "Power (kW)": power,
+        "Interest Rate": interest_rate,
+        "Repayment Years": repayment_years,
+        "Battery Capacity (kWh)": battery_kWh,
+        "Annual Saving (€)": annual_saving,
+        "Prepayment Fraction": prepayment_fraction,
+        "Cost per kW (€)": cost_per_kw,
+        "PV Cost (€)": pv_cost,
+        "Cost per kWh (Battery, €)": cost_per_kWh,
+        "Battery Cost (€)": battery_cost,
+        "Estimated Loan (€)": estimated_loan,
+        "Monthly Payment (€)": monthly_payment,
+        "Half of Loan (€)": half_loan
+    }
+    return results
+
+def compute_kwh_estimation():
+    annual_electricity_cost_known = 900  # €/year
+    tariff = 0.07                        # €/kWh
+    annual_electricity_cost_unknown = 900
+    consumer_category_known = "Κατοικία"
+    consumer_category_unknown = "Κατοικία"
+
+    if consumer_category_known == "Κατοικία":
+        estimated_price_known = tariff + 0.05
+    elif consumer_category_known == "Επιχείρηση χαμηλής τάσης":
+        estimated_price_known = tariff + 0.04
+    else:
+        estimated_price_known = tariff + 0.035
+
+    if consumer_category_unknown == "Κατοικία":
+        estimated_price_unknown = 0.17
+    elif consumer_category_unknown == "Επιχείρηση χαμηλής τάσης":
+        estimated_price_unknown = 0.15
+    else:
+        estimated_price_unknown = 0.12
+
+    consumption_known = annual_electricity_cost_known / estimated_price_known
+    consumption_unknown = annual_electricity_cost_unknown / estimated_price_unknown
+
+    results = {
+        "Annual Electricity Cost (known, €)": annual_electricity_cost_known,
+        "Tariff (€/kWh)": tariff,
+        "Estimated Price (known, €/kWh)": estimated_price_known,
+        "Estimated Annual Consumption (known, kWh)": consumption_known,
+        "Annual Electricity Cost (unknown, €)": annual_electricity_cost_unknown,
+        "Estimated Price (unknown, €/kWh)": estimated_price_unknown,
+        "Estimated Annual Consumption (unknown, kWh)": consumption_unknown
+    }
+    return results
+
+def compute_corporate():
+    annual_consumption = 240000          # kWh
+    consumption_time = "Απόγευμα-Βράδυ"
+    tariff_category = "Γ1"
+    normal_tariff = 0.3
+    night_tariff = 0.08
+    region = "Δυτική Ελλάδα"
+    roof_type = "Στέγη"
+    orientation = "ΝΔ"
+
+    if consumption_time == "Πρωί-Μεσημέρι":
+        I7 = 0.7
+    elif consumption_time == "Απόγευμα-Βράδυ":
+        I7 = 0.3
+    else:
+        I7 = 0.6
+    I8 = 1 - I7
+
+    if region in ["Νότιο Αιγαίο", "Κρήτη"]:
+        I11 = 1600
+    elif region in ["Αττική", "Δυτική Ελλάδα", "Ιόνιοι Νήσοι"]:
+        I11 = 1550
+    elif region == "Πελοπόννησος":
+        I11 = 1500
+    elif region in ["Ήπειρος", "Θεσσαλία", "Στερεά Ελλάδα"]:
+        I11 = 1450
+    else:
+        I11 = 1400
+
+    if roof_type == "Στέγη":
+        if orientation in ["Α", "Δ"]:
+            I10 = 0.85
+        elif orientation in ["ΝΑ", "ΝΔ"]:
+            I10 = 0.93
+        else:
+            I10 = 0.95
+    else:
+        I10 = 1.0
+
+    I12 = I11 * I10
+    L7 = annual_consumption / I12
+
+    if tariff_category == "Γ1Ν":
+        O7 = normal_tariff * I7 + night_tariff * I8
+    else:
+        O7 = normal_tariff
+
+    O8 = 0.046
+
+    if tariff_category == "Γ1":
+        L17 = (normal_tariff + 0.046) * 1.06 * annual_consumption
+    else:
+        L17 = None
+
+    results = {
+        "Annual Consumption (kWh)": annual_consumption,
+        "I7": I7,
+        "I8": I8,
+        "I11": I11,
+        "I10": I10,
+        "I12": I12,
+        "L7": L7,
+        "O7 (Effective Tariff)": O7,
+        "O8": O8,
+        "Estimated Baseline Cost (L17)": L17
+    }
+    return results
+
+##############################
+# MICROGRID REPORT GENERATOR CLASS (from EUNICE_BESS_SIM)
+##############################
 class MicrogridReportGenerator:
     """
-    Generate static reports and visualizations for microgrid analysis.
+    Generate reports and visualizations for microgrid analysis.
     """
     def __init__(self, scenario_name="Base Scenario", load_data_file=None):
         self.scenario_name = scenario_name
-
-        # Simulation parameters
-        self.days = 7  # One week simulation (default)
+        self.days = 7  # default simulation period (days)
         self.hours = self.days * 24
         self.time_range = np.linspace(0, self.days, self.hours)
         self.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h) for h in range(self.hours)]
-
-        # System parameters, financial parameters, etc.
-        self.pv_capacity = 150  # kW
-        self.wind_capacity = 100  # kW
+        
+        # System parameters
+        self.pv_capacity = 150   # kW
+        self.wind_capacity = 100 # kW
         self.battery_capacity = 300  # kWh
         self.battery_power = 75  # kW
         self.battery_efficiency = 0.9
         self.battery_soc_min = 0.1
         self.battery_soc_initial = 0.5
-        self.peak_load = 180  # kW
-        self.pv_cost_per_kw = 1000  # $/kW
-        self.wind_cost_per_kw = 1500  # $/kW
-        self.battery_cost_per_kwh = 400  # $/kWh
-        self.om_cost_percent = 2  # % of capital cost per year
-        self.project_lifetime = 25  # years
-        self.discount_rate = 0.06  # 6%
-        self.grid_electricity_price = 0.12  # $/kWh
-        self.grid_export_price = 0.05  # $/kWh
+        self.peak_load = 180      # kW
+        self.pv_cost_per_kw = 1000
+        self.wind_cost_per_kw = 1500
+        self.battery_cost_per_kwh = 400
+        self.om_cost_percent = 2
+        self.project_lifetime = 25
+        self.discount_rate = 0.06
+        self.grid_electricity_price = 0.12
+        self.grid_export_price = 0.05
 
-        # Always initialize original_daily_load and df_load to guarantee the attributes exist
         self.original_daily_load = None
         self.df_load = None
 
-        # If a load data file is provided, try to read it
         if load_data_file is not None:
             try:
-                # Read the Excel file; expected columns: A: station name, B: station type, Columns C–Z: 24 hourly load values
                 df_load = pd.read_excel(load_data_file, engine='openpyxl')
-                st.write("Excel file preview:", df_load.head())  # Debug: show first few rows
-                self.df_load = df_load.copy()  # Store full Excel data
-
-                # Sum the load across all stations for each hour (from the third column onward)
-                daily_load = df_load.iloc[:, 2:].sum(axis=0).values  # yields 24 values
-                # Create a DataFrame for a single day load curve (total load)
+                st.write("Excel file preview:", df_load.head())
+                self.df_load = df_load.copy()
+                daily_load = df_load.iloc[:, 2:].sum(axis=0).values
                 date_index = pd.date_range(start="2025-01-01", periods=24, freq="H")
                 self.original_daily_load = pd.DataFrame({'load': daily_load}, index=date_index)
             except Exception as e:
                 st.error(f"Error reading load data file: {e}")
                 self.original_daily_load = None
-
-        # Proceed to generate other data and create report directory
         self.generate_data()
         self.report_dir = f"microgrid_report_{scenario_name.replace(' ', '_')}"
         os.makedirs(self.report_dir, exist_ok=True)
-    
+
     def generate_data(self):
-        """Generate all data needed for the report"""
         self.generate_solar_profile()
         self.generate_wind_profile()
         self.generate_load_profile()
         self.run_simulation()
         self.calculate_lcoe()
-    
+
     def generate_solar_profile(self):
-        """Generate realistic solar profile with daily and hourly patterns"""
-        # Time factors
         hours_of_day = np.array([h % 24 for h in range(self.hours)])
         days = np.array([h // 24 for h in range(self.hours)])
-        
-        # Solar daily pattern (bell curve)
         solar_factor = np.maximum(0, np.sin(np.pi * (hours_of_day - 6) / 12))
-        
-        # Add day-to-day variability
         daily_factor = 1.0 - 0.3 * np.sin(days * 1.5)
         daily_factor = np.repeat(daily_factor, 24)[:self.hours]
-        
-        # Add some cloud events
-        cloud_events = np.random.randint(0, self.hours, 5)  # 5 random cloud events
+        cloud_events = np.random.randint(0, self.hours, 5)
         for event in cloud_events:
-            # Create a dip for cloud cover
-            duration = np.random.randint(2, 6)  # 2-6 hours
-            intensity = np.random.uniform(0.3, 0.8)  # How much solar is reduced
-            
-            # Apply cloud effect
+            duration = np.random.randint(2, 6)
+            intensity = np.random.uniform(0.3, 0.8)
             for i in range(duration):
                 if event + i < self.hours:
                     daily_factor[event + i] *= intensity
-        
-        # Combine factors
         self.pv_profile = self.pv_capacity * solar_factor * daily_factor
-    
+
     def generate_wind_profile(self):
-        """Generate realistic wind profile with daily and hourly patterns"""
-        # Time factors
         hours_of_day = np.array([h % 24 for h in range(self.hours)])
         days = np.array([h // 24 for h in range(self.hours)])
-        
-        # Wind tends to be stronger at night
         wind_daily = 0.7 + 0.3 * np.sin(np.pi * (hours_of_day - 18) / 12)
-        
-        # Add day-to-day variability (with some periodicity)
         daily_factor = 0.6 + 0.4 * np.sin(days * 0.8 + 2)
         daily_factor = np.repeat(daily_factor, 24)[:self.hours]
-        
-        # Add random gusts and lulls
-        for _ in range(10):  # 10 wind events
+        for _ in range(10):
             start = np.random.randint(0, self.hours - 12)
             duration = np.random.randint(3, 12)
-            if np.random.rand() > 0.5:  # Gust
-                factor = np.random.uniform(1.2, 1.5)
-            else:  # Lull
-                factor = np.random.uniform(0.3, 0.7)
-            
+            factor = np.random.uniform(1.2, 1.5) if np.random.rand() > 0.5 else np.random.uniform(0.3, 0.7)
             for i in range(duration):
                 if start + i < self.hours:
                     daily_factor[start + i] *= factor
-        
-        # Add some smoothing (wind changes aren't instant)
         daily_factor = np.convolve(daily_factor, np.ones(3)/3, mode='same')
-        
-        # Combine factors and ensure non-negative
         self.wind_profile = np.maximum(0, self.wind_capacity * wind_daily * daily_factor)
-    
+
     def generate_load_profile(self):
-        """Generate load profile using actual data if available, otherwise synthetic"""
         if self.original_daily_load is not None:
-            # Repeat the one-day load curve for the whole simulation period
-            daily_load = self.original_daily_load['load'].values  # length = 24
+            daily_load = self.original_daily_load['load'].values
             self.load_profile = np.tile(daily_load, self.days)
         else:
-            # Synthetic load profile (your existing code)
             hours_of_day = np.array([h % 24 for h in range(self.hours)])
             days = np.array([h // 24 for h in range(self.hours)])
             days_of_week = np.array([d % 7 for d in days])
@@ -165,109 +385,62 @@ class MicrogridReportGenerator:
             self.load_profile = self.peak_load * daily_pattern * weekday_factor * (1 + noise)
             self.load_profile = np.maximum(0, self.load_profile)
 
-    
     def run_simulation(self):
-        """Run the microgrid simulation"""
-        # Initialize arrays
         self.grid_import = np.zeros(self.hours)
         self.grid_export = np.zeros(self.hours)
         self.battery_charge = np.zeros(self.hours)
         self.battery_discharge = np.zeros(self.hours)
         self.battery_soc = np.zeros(self.hours)
-        
-        # Set initial battery SOC
         self.battery_soc[0] = self.battery_soc_initial * self.battery_capacity
-        
-        # Run energy balance for each hour
+
         for h in range(self.hours):
-            # Calculate renewable generation
             renewable_gen = self.pv_profile[h] + self.wind_profile[h]
-            
-            # Calculate net load (negative means excess generation)
             net_load = self.load_profile[h] - renewable_gen
-            
-            # Apply battery operation
             if h > 0:
                 self.battery_soc[h] = self.battery_soc[h-1]
-            
-            if net_load > 0:  # Need more power
-                # Discharge battery
-                max_discharge = min(
-                    self.battery_soc[h] - self.battery_soc_min * self.battery_capacity,
-                    self.battery_power
-                )
-                
+            if net_load > 0:
+                max_discharge = min(self.battery_soc[h] - self.battery_soc_min * self.battery_capacity, self.battery_power)
                 discharge = min(max_discharge, net_load)
                 if discharge > 0:
                     self.battery_discharge[h] = discharge
                     self.battery_soc[h] -= discharge
                     net_load -= discharge
-                
-                # Import from grid if needed
                 if net_load > 0:
                     self.grid_import[h] = net_load
-            else:  # Excess generation
-                # Charge battery
-                max_charge = min(
-                    (self.battery_capacity - self.battery_soc[h]) / self.battery_efficiency,
-                    self.battery_power
-                )
-                
+            else:
+                max_charge = min((self.battery_capacity - self.battery_soc[h]) / self.battery_efficiency, self.battery_power)
                 charge = min(max_charge, -net_load)
                 if charge > 0:
                     self.battery_charge[h] = charge
                     self.battery_soc[h] += charge * self.battery_efficiency
                     net_load += charge
-                
-                # Export to grid if still excess
                 if net_load < 0:
                     self.grid_export[h] = -net_load
-        
-        # Calculate key performance metrics
+
         self.total_load = np.sum(self.load_profile)
         self.pv_generation = np.sum(self.pv_profile)
         self.wind_generation = np.sum(self.wind_profile)
         self.total_grid_import = np.sum(self.grid_import)
         self.total_grid_export = np.sum(self.grid_export)
-        
-        # Calculate renewable fraction
         total_renewable_used = (self.pv_generation + self.wind_generation - self.total_grid_export)
         self.renewables_fraction = min(100, 100 * total_renewable_used / self.total_load)
-        
-        # Calculate self-sufficiency
         self.self_sufficiency = 100 * (self.total_load - self.total_grid_import) / self.total_load
-        
-        # Battery utilization
         self.battery_cycles = np.sum(self.battery_discharge) / self.battery_capacity
-        
+
     def calculate_lcoe(self):
-        """Calculate Levelized Cost of Energy (LCOE)"""
-        # Calculate capital costs
         pv_capex = self.pv_capacity * self.pv_cost_per_kw
         wind_capex = self.wind_capacity * self.wind_cost_per_kw
         battery_capex = self.battery_capacity * self.battery_cost_per_kwh
         total_capex = pv_capex + wind_capex + battery_capex
-        
-        # Calculate annual O&M costs
         annual_om = total_capex * (self.om_cost_percent / 100)
-        
-        # Calculate grid costs and revenues (annualized)
         annual_grid_cost = self.total_grid_import * self.grid_electricity_price * (365 / self.days)
         annual_export_revenue = self.total_grid_export * self.grid_export_price * (365 / self.days)
         annual_net_grid = annual_grid_cost - annual_export_revenue
-        
-        # Calculate NPV of all costs
         npv_factor = sum(1 / ((1 + self.discount_rate) ** year) for year in range(1, self.project_lifetime + 1))
         npv_costs = total_capex + (annual_om + annual_net_grid) * npv_factor
-        
-        # Calculate lifetime energy production
         annual_energy = self.total_load * (365 / self.days)
         lifetime_energy = annual_energy * self.project_lifetime
-        
-        # Calculate LCOE
         self.lcoe = npv_costs / lifetime_energy if lifetime_energy > 0 else 0
-        
-        # Store components for reporting
         self.cost_components = {
             'PV Capital': pv_capex,
             'Wind Capital': wind_capex,
@@ -279,745 +452,77 @@ class MicrogridReportGenerator:
             'Annual Energy': annual_energy,
             'LCOE': self.lcoe
         }
-    
+
+    # The following methods create various plots.
     def create_energy_flow_plot(self):
-        """Create a plot of the energy flows over time"""
         fig, ax = plt.subplots(figsize=(14, 8))
-        
-        # Convert to dates for better x-axis formatting
         dates = self.dates
-        
-        # Plot load
         ax.plot(dates, self.load_profile, 'k-', label='Load', linewidth=2)
-        
-        # Plot renewable generation
         ax.plot(dates, self.pv_profile, color='orange', label='Solar PV')
         ax.plot(dates, self.wind_profile, color='blue', label='Wind')
         ax.plot(dates, self.pv_profile + self.wind_profile, 'g--', label='Total Renewable', alpha=0.7)
-        
-        # Plot grid exchanges
         ax.plot(dates, self.grid_import, 'r-', label='Grid Import')
         ax.plot(dates, -self.grid_export, 'g-', label='Grid Export')
-        
-        # Fill areas for visual appeal
         ax.fill_between(dates, 0, self.pv_profile, color='orange', alpha=0.3)
         ax.fill_between(dates, self.pv_profile, self.pv_profile + self.wind_profile, color='blue', alpha=0.3)
-        
-        # Add battery charge/discharge indicators
         charge_mask = self.battery_charge > 0
         discharge_mask = self.battery_discharge > 0
-        
         if np.any(charge_mask):
             ax.scatter(np.array(dates)[charge_mask], self.battery_charge[charge_mask],
-                      marker='^', color='green', s=50, label='Battery Charging')
-        
+                       marker='^', color='green', s=50, label='Battery Charging')
         if np.any(discharge_mask):
             ax.scatter(np.array(dates)[discharge_mask], self.battery_discharge[discharge_mask],
-                      marker='v', color='purple', s=50, label='Battery Discharging')
-        
-        # Set axis labels and title
+                       marker='v', color='purple', s=50, label='Battery Discharging')
         ax.set_xlabel('Date')
         ax.set_ylabel('Power (kW)')
         ax.set_title(f'Microgrid Energy Flows - {self.scenario_name}')
-        
-        # Format x-axis to show dates nicely
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%a %d-%H:%M'))
         ax.xaxis.set_major_locator(mdates.DayLocator())
         plt.xticks(rotation=45)
-        
-        # Add grid
         ax.grid(True, alpha=0.3)
-        
-        # Add legend
         ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        
-        # Add summary statistics as text
-        stats_text = (
-            f"Total Load: {self.total_load:.1f} kWh\n"
-            f"PV Generation: {self.pv_generation:.1f} kWh\n"
-            f"Wind Generation: {self.wind_generation:.1f} kWh\n"
-            f"Grid Import: {self.total_grid_import:.1f} kWh\n"
-            f"Grid Export: {self.total_grid_export:.1f} kWh\n"
-            f"Renewable Fraction: {self.renewables_fraction:.1f}%\n"
-            f"Self-sufficiency: {self.self_sufficiency:.1f}%\n"
-            f"Battery Cycles: {self.battery_cycles:.2f}"
-        )
-        
-        # Add text box
-        plt.figtext(0.02, 0.02, stats_text, fontsize=10, 
-                   bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray', boxstyle='round,pad=0.5'))
-        
-        # Adjust layout
         plt.tight_layout()
-        
-        # Save figure
         fig.savefig(f"{self.report_dir}/energy_flows.png")
-        
         return fig
-    
+
     def create_battery_soc_plot(self):
-        """Create a plot of the battery state of charge"""
         fig, ax = plt.subplots(figsize=(14, 6))
-        
-        # Convert to dates for better x-axis formatting
         dates = self.dates
-        
-        # Calculate SOC percentage
         soc_percent = 100 * self.battery_soc / self.battery_capacity
-        
-        # Create colormap for SOC
         cmap = plt.cm.viridis
         norm = plt.Normalize(0, 100)
-        
-        # Plot SOC with gradient fill
         for i in range(len(dates)-1):
             ax.fill_between([dates[i], dates[i+1]], [0, 0], [soc_percent[i], soc_percent[i+1]],
                             color=cmap(norm(soc_percent[i])))
-        
-        # Plot SOC line
         ax.plot(dates, soc_percent, 'k-', linewidth=2, label='SOC')
-        
-        # Add min SOC line
         ax.axhline(y=self.battery_soc_min * 100, color='r', linestyle='--', alpha=0.7, 
                    label=f'Min SOC ({self.battery_soc_min*100:.0f}%)')
-        
-        # Highlight charge/discharge events
         charge_mask = self.battery_charge > 0
         discharge_mask = self.battery_discharge > 0
-        
         if np.any(charge_mask):
             ax.scatter(np.array(dates)[charge_mask], soc_percent[charge_mask],
                       marker='^', color='lime', s=50, label='Charging')
-        
         if np.any(discharge_mask):
             ax.scatter(np.array(dates)[discharge_mask], soc_percent[discharge_mask],
                       marker='v', color='red', s=50, label='Discharging')
-        
-        # Set axis labels and title
         ax.set_xlabel('Date')
         ax.set_ylabel('State of Charge (%)')
         ax.set_title(f'Battery State of Charge - {self.scenario_name}')
-        
-        # Format x-axis to show dates nicely
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%a %d-%H:%M'))
         ax.xaxis.set_major_locator(mdates.DayLocator())
         plt.xticks(rotation=45)
-        
-        # Set y-axis limits
         ax.set_ylim(0, 100)
-        
-        # Add grid
         ax.grid(True, alpha=0.3)
-        
-        # Add SOC stats with corrected f-string formatting:
-        stats_text = (
-            f"Battery Capacity: {self.battery_capacity:.0f} kWh\n"
-            f"Battery Power: {self.battery_power:.0f} kW\n"
-            f"Min SOC: {np.min(soc_percent):.1f}%\n"
-            f"Max SOC: {np.max(soc_percent):.1f}%\n"
-            f"Avg SOC: {np.mean(soc_percent):.1f}%\n"
-            f"Total Charge: {np.sum(self.battery_charge):.1f} kWh\n"
-            f"Total Discharge: {np.sum(self.battery_discharge):.1f} kWh\n"
-            f"Equivalent Cycles: {self.battery_cycles:.2f}"
-        )
-        
-        # Add text box
-        plt.figtext(0.02, 0.02, stats_text, fontsize=10, 
-                   bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray', boxstyle='round,pad=0.5'))
-        
-        # Add color bar
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])
-        cbar = plt.colorbar(sm, ax=ax, label='SOC (%)')
-        
-        # Add legend
         ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        
-        # Adjust layout
         plt.tight_layout()
-        
-        # Save figure
         fig.savefig(f"{self.report_dir}/battery_soc.png")
-        
         return fig
-    
-    def create_daily_profile_plot(self):
-        """Create a plot showing average daily profiles"""
-        # Reshape data to get daily profiles (hours x days)
-        hours_per_day = 24
-        days = self.hours // hours_per_day
-        
-        load_daily = self.load_profile.reshape(days, hours_per_day)
-        pv_daily = self.pv_profile.reshape(days, hours_per_day)
-        wind_daily = self.wind_profile.reshape(days, hours_per_day)
-        grid_import_daily = self.grid_import.reshape(days, hours_per_day)
-        grid_export_daily = self.grid_export.reshape(days, hours_per_day)
-        
-        # Calculate averages
-        load_avg = np.mean(load_daily, axis=0)
-        pv_avg = np.mean(pv_daily, axis=0)
-        wind_avg = np.mean(wind_daily, axis=0)
-        grid_import_avg = np.mean(grid_import_daily, axis=0)
-        grid_export_avg = np.mean(grid_export_daily, axis=0)
-        
-        # Calculate standard deviations for uncertainty bands
-        load_std = np.std(load_daily, axis=0)
-        pv_std = np.std(pv_daily, axis=0)
-        wind_std = np.std(wind_daily, axis=0)
-        
-        # Create figure
-        fig, ax = plt.subplots(figsize=(12, 8))
-        
-        # Time range
-        hours = np.arange(24)
-        
-        # Plot averages with uncertainty bands
-        ax.plot(hours, load_avg, 'k-', linewidth=3, label='Load')
-        ax.fill_between(hours, load_avg - load_std, load_avg + load_std, color='k', alpha=0.2)
-        
-        ax.plot(hours, pv_avg, color='orange', linewidth=2, label='Solar PV')
-        ax.fill_between(hours, pv_avg - pv_std, pv_avg + pv_std, color='orange', alpha=0.2)
-        
-        ax.plot(hours, wind_avg, color='blue', linewidth=2, label='Wind')
-        ax.fill_between(hours, wind_avg - wind_std, wind_avg + wind_std, color='blue', alpha=0.2)
-        
-        ax.plot(hours, pv_avg + wind_avg, 'g--', linewidth=2, label='Total Renewable')
-        
-        ax.plot(hours, grid_import_avg, 'r-', linewidth=2, label='Grid Import')
-        ax.plot(hours, -grid_export_avg, 'g-', linewidth=2, label='Grid Export')
-        
-        # Set labels and title
-        ax.set_xlabel('Hour of Day')
-        ax.set_ylabel('Average Power (kW)')
-        ax.set_title(f'Average Daily Profiles - {self.scenario_name}')
-        
-        # Set x-axis ticks to show hours
-        ax.set_xticks(np.arange(0, 24, 2))
-        ax.set_xlim(0, 23)
-        
-        # Add grid
-        ax.grid(True, alpha=0.3)
-        
-        # Add legend
-        ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        
-        # Time labels for better readability
-        time_labels = ['Midnight', '2 AM', '4 AM', '6 AM', '8 AM', '10 AM', 
-                      'Noon', '2 PM', '4 PM', '6 PM', '8 PM', '10 PM']
-        ax.set_xticks(np.arange(0, 24, 2))
-        ax.set_xticklabels(time_labels)
-        
-        # Adjust layout
-        plt.tight_layout()
-        
-        # Save figure
-        fig.savefig(f"{self.report_dir}/daily_profiles.png")
-        
-        return fig
-    
-    def create_energy_balance_diagram(self):
-        """Create an energy balance diagram showing the overall energy flows"""
-        # Create figure
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        # Set background color
-        ax.set_facecolor('#f9f9f9')
-        
-        # Hide axes
-        ax.axis('off')
-        
-        # Define node positions
-        node_pos = {
-            'PV': [0.2, 0.8],
-            'Wind': [0.2, 0.5],
-            'Battery': [0.5, 0.5],
-            'Grid': [0.2, 0.2],
-            'Load': [0.8, 0.5]
-        }
-        
-        # Define node sizes based on capacity
-        node_sizes = {
-            'PV': self.pv_capacity / 5,
-            'Wind': self.wind_capacity / 5,
-            'Battery': self.battery_capacity / 15,
-            'Grid': max(self.total_grid_import, self.total_grid_export) / 50,
-            'Load': self.peak_load / 5
-        }
-        
-        # Cap node sizes for visualization
-        for node in node_sizes:
-            node_sizes[node] = max(15, min(50, node_sizes[node]))
-        
-        # Define node colors
-        node_colors = {
-            'PV': 'orange',
-            'Wind': 'blue',
-            'Battery': 'gray',
-            'Grid': 'red',
-            'Load': 'black'
-        }
-        
-        # Draw nodes
-        for node, pos in node_pos.items():
-            circle = plt.Circle(pos, node_sizes[node]/100, color=node_colors[node], alpha=0.8)
-            ax.add_patch(circle)
-            ax.text(pos[0], pos[1], node, ha='center', va='center', color='white', 
-                   fontweight='bold', fontsize=12)
-        
-        # Calculate energy flows
-        flows = {
-            'PV->Load': min(self.pv_generation, self.total_load - self.total_grid_import - np.sum(self.battery_discharge)),
-            'Wind->Load': min(self.wind_generation, self.total_load - min(self.pv_generation, self.total_load - self.total_grid_import - np.sum(self.battery_discharge)) - self.total_grid_import - np.sum(self.battery_discharge)),
-            'PV->Battery': min(np.sum(self.battery_charge), self.pv_generation - min(self.pv_generation, self.total_load - self.total_grid_import - np.sum(self.battery_discharge))),
-            'Wind->Battery': min(np.sum(self.battery_charge) - min(np.sum(self.battery_charge), self.pv_generation - min(self.pv_generation, self.total_load - self.total_grid_import - np.sum(self.battery_discharge))), 
-                               self.wind_generation - min(self.wind_generation, self.total_load - min(self.pv_generation, self.total_load - self.total_grid_import - np.sum(self.battery_discharge)) - self.total_grid_import - np.sum(self.battery_discharge))),
-            'Battery->Load': np.sum(self.battery_discharge),
-            'Grid->Load': self.total_grid_import,
-            'PV->Grid': max(0, self.pv_generation - min(self.pv_generation, self.total_load - self.total_grid_import - np.sum(self.battery_discharge)) - min(np.sum(self.battery_charge), self.pv_generation - min(self.pv_generation, self.total_load - self.total_grid_import - np.sum(self.battery_discharge)))),
-            'Wind->Grid': max(0, self.wind_generation - min(self.wind_generation, self.total_load - min(self.pv_generation, self.total_load - self.total_grid_import - np.sum(self.battery_discharge)) - self.total_grid_import - np.sum(self.battery_discharge)) - min(np.sum(self.battery_charge) - min(np.sum(self.battery_charge), self.pv_generation - min(self.pv_generation, self.total_load - self.total_grid_import - np.sum(self.battery_discharge))), self.wind_generation - min(self.wind_generation, self.total_load - min(self.pv_generation, self.total_load - self.total_grid_import - np.sum(self.battery_discharge)) - self.total_grid_import - np.sum(self.battery_discharge))))
-        }
-        
-        # Define flow paths
-        flow_paths = {
-            'PV->Load': [node_pos['PV'], node_pos['Load']],
-            'Wind->Load': [node_pos['Wind'], node_pos['Load']],
-            'PV->Battery': [node_pos['PV'], node_pos['Battery']],
-            'Wind->Battery': [node_pos['Wind'], node_pos['Battery']],
-            'Battery->Load': [node_pos['Battery'], node_pos['Load']],
-            'Grid->Load': [node_pos['Grid'], node_pos['Load']],
-            'PV->Grid': [node_pos['PV'], node_pos['Grid']],
-            'Wind->Grid': [node_pos['Wind'], node_pos['Grid']]
-        }
-        
-        # Define flow colors
-        flow_colors = {
-            'PV->Load': 'orange',
-            'Wind->Load': 'blue',
-            'PV->Battery': 'orange',
-            'Wind->Battery': 'blue',
-            'Battery->Load': 'gray',
-            'Grid->Load': 'red',
-            'PV->Grid': 'orange',
-            'Wind->Grid': 'blue'
-        }
-        
-        # Normalize flows for visualization
-        max_flow = max(flows.values()) if flows.values() else 1
-        normalized_flows = {k: max(1, v / max_flow * 20) for k, v in flows.items()}
-        
-        # Draw flows
-        for flow_name, width in normalized_flows.items():
-            if flows[flow_name] > 0.01 * self.total_load:  # Only show significant flows
-                start, end = flow_paths[flow_name]
-                
-                # Create curved arrows
-                ax.annotate('', xy=end, xytext=start,
-                          arrowprops=dict(arrowstyle='->', color=flow_colors[flow_name], 
-                                        lw=width, connectionstyle='arc3,rad=0.1', alpha=0.7))
-        
-        # Add legend for flow quantities
-        legend_items = []
-        for flow_name, value in flows.items():
-            if value > 0.01 * self.total_load:  # Only show significant flows
-                color = flow_colors[flow_name]
-                legend_items.append((flow_name, f"{value:.1f} kWh", color))
-        
-        # Sort legend by value
-        legend_items.sort(key=lambda x: flows[x[0]], reverse=True)
-        
-        # Create legend patches
-        legend_patches = []
-        for name, value, color in legend_items:
-            patch = Patch(color=color, alpha=0.7, label=f"{name}: {value}")
-            legend_patches.append(patch)
-        
-        # Add legend
-        ax.legend(handles=legend_patches, loc='upper center', bbox_to_anchor=(0.5, 0.05),
-                 ncol=2, fontsize=10)
-        
-        # Add title
-        ax.set_title(f'Energy Flow Diagram - {self.scenario_name}', fontsize=16, pad=20)
-        
-        # Add system metrics
-        metrics_text = (
-            f"Total Load: {self.total_load:.1f} kWh\n"
-            f"PV Generation: {self.pv_generation:.1f} kWh\n"
-            f"Wind Generation: {self.wind_generation:.1f} kWh\n"
-            f"Battery Throughput: {float(np.sum(self.battery_discharge)):.1f} kWh\n"
-            f"Grid Import: {self.total_grid_import:.1f} kWh\n"
-            f"Grid Export: {self.total_grid_export:.1f} kWh\n"
-            f"Renewable Fraction: {self.renewables_fraction:.1f}%\n"
-            f"LCOE: ${self.lcoe:.4f}/kWh"
-        )
-        
-        plt.figtext(0.02, 0.97, metrics_text, fontsize=10, ha='left', va='top',
-                  bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray', boxstyle='round,pad=0.5'))
-        
-        # Save figure
-        fig.savefig(f"{self.report_dir}/energy_balance.png")
-        
-        return fig
-    
-    def create_lcoe_breakdown(self):
-        """Create a breakdown of LCOE components"""
-        # Ensure grid cost is non-negative for visualization
-        grid_cost = (self.cost_components['Annual Grid Cost'] - self.cost_components['Annual Export Revenue']) * self.project_lifetime
-        grid_cost = max(0, grid_cost)  # Set to zero if negative
-
-        # Extract cost components
-        components = [
-            ('PV Capital', self.cost_components['PV Capital']),
-            ('Wind Capital', self.cost_components['Wind Capital']),
-            ('Battery Capital', self.cost_components['Battery Capital']),
-            ('O&M (NPV)', self.cost_components['Annual O&M'] * self.project_lifetime),
-            ('Grid Costs (NPV)', grid_cost)
-        ]
-        
-        # Sort by value
-        components.sort(key=lambda x: x[1], reverse=True)
-        
-        # Extract labels and values
-        labels = [c[0] for c in components]
-        values = [c[1] for c in components]
-        
-        # Create figure
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 8))
-        
-        # Create pie chart of capital costs
-        ax1.pie(values, labels=labels, autopct='%1.1f%%', startangle=90, 
-                wedgeprops=dict(width=0.5, edgecolor='w'),
-                textprops={'fontsize': 12})
-        ax1.set_title('Cost Components Breakdown')
-        
-        # Create bar chart for LCOE components
-        # Convert to LCOE by dividing by lifetime energy
-        lifetime_energy = self.cost_components['Annual Energy'] * self.project_lifetime
-        lcoe_components = [(label, val / lifetime_energy * 100) for label, val in components]  # cents/kWh
-        
-        # Sort by value
-        lcoe_components.sort(key=lambda x: x[1], reverse=True)
-        
-        # Extract labels and values
-        lcoe_labels = [c[0] for c in lcoe_components]
-        lcoe_values = [c[1] for c in lcoe_components]
-        
-        # Plot horizontal bar chart
-        bars = ax2.barh(lcoe_labels, lcoe_values, color=plt.cm.tab10.colors)
-        
-        # Add data labels
-        for bar in bars:
-            width = bar.get_width()
-            ax2.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
-                     f'{width:.2f}¢', ha='left', va='center')
-        
-        ax2.set_xlabel('Cost (¢/kWh)')
-        ax2.set_title('LCOE Components')
-        ax2.grid(axis='x', alpha=0.3)
-        
-        # Add total LCOE line
-        ax2.axvline(x=self.lcoe * 100, color='red', linestyle='--', 
-                    label=f'Total LCOE: {self.lcoe*100:.2f}¢/kWh')
-        ax2.legend()
-        
-        # Add financial summary
-        summary_text = (
-            f"System Costs:\n"
-            f"PV: ${self.cost_components['PV Capital']:,.0f} (${self.pv_cost_per_kw:,.0f}/kW)\n"
-            f"Wind: ${self.cost_components['Wind Capital']:,.0f} (${self.wind_cost_per_kw:,.0f}/kW)\n"
-            f"Battery: ${self.cost_components['Battery Capital']:,.0f} (${self.battery_cost_per_kwh:,.0f}/kWh)\n"
-            f"Total Capital: ${sum(values):,.0f}\n\n"
-            f"Annual O&M: ${self.cost_components['Annual O&M']:,.0f}/year\n"
-            f"Annual Energy: {self.cost_components['Annual Energy']:,.0f} kWh/year\n"
-            f"Project Lifetime: {self.project_lifetime} years\n"
-            f"Discount Rate: {self.discount_rate*100:.1f}%\n"
-            f"LCOE: ${self.lcoe:.4f}/kWh"
-        )
-        
-        plt.figtext(0.5, 0.02, summary_text, fontsize=10, ha='center', va='bottom',
-                   bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray', boxstyle='round,pad=0.5'))
-        
-        # Adjust layout
-        plt.tight_layout(rect=[0, 0.1, 1, 0.9])
-        plt.subplots_adjust(wspace=0.3)
-        
-        # Add title
-        plt.suptitle(f'Cost Analysis - {self.scenario_name}', fontsize=16, y=0.98)
-        
-        # Save figure
-        fig.savefig(f"{self.report_dir}/cost_analysis.png")
-        
-        return fig
-
-    
-    def create_comprehensive_report(self):
-        """Create a comprehensive report with all visualizations"""
-        # Generate all plots
-        energy_flow_fig = self.create_energy_flow_plot()
-        battery_soc_fig = self.create_battery_soc_plot()
-        daily_profile_fig = self.create_daily_profile_plot()
-        energy_balance_fig = self.create_energy_balance_diagram()
-        lcoe_breakdown_fig = self.create_lcoe_breakdown()
-        
-        # Create summary text file
-        with open(f"{self.report_dir}/summary.txt", 'w') as f:
-            f.write(f"MICROGRID ANALYSIS REPORT - {self.scenario_name}\n")
-            f.write("=" * 50 + "\n\n")
-            
-            f.write("SYSTEM CONFIGURATION\n")
-            f.write("-" * 30 + "\n")
-            f.write(f"PV Capacity: {self.pv_capacity} kW\n")
-            f.write(f"Wind Capacity: {self.wind_capacity} kW\n")
-            f.write(f"Battery Capacity: {self.battery_capacity} kWh\n")
-            f.write(f"Battery Power: {self.battery_power} kW\n")
-            f.write(f"Battery Efficiency: {self.battery_efficiency*100}%\n")
-            f.write(f"Peak Load: {self.peak_load} kW\n\n")
-            
-            f.write("ENERGY METRICS\n")
-            f.write("-" * 30 + "\n")
-            f.write(f"Simulation Period: {self.days} days\n")
-            f.write(f"Total Load: {self.total_load:.1f} kWh\n")
-            f.write(f"PV Generation: {self.pv_generation:.1f} kWh ({100*self.pv_generation/self.total_load:.1f}% of load)\n")
-            f.write(f"Wind Generation: {self.wind_generation:.1f} kWh ({100*self.wind_generation/self.total_load:.1f}% of load)\n")
-            f.write(f"Total Renewable Generation: {self.pv_generation+self.wind_generation:.1f} kWh ({100*(self.pv_generation+self.wind_generation)/self.total_load:.1f}% of load)\n")
-            f.write(f"Grid Import: {self.total_grid_import:.1f} kWh ({100*self.total_grid_import/self.total_load:.1f}% of load)\n")
-            f.write(f"Grid Export: {self.total_grid_export:.1f} kWh\n")
-            f.write(f"Battery Charge: {np.sum(self.battery_charge):.1f} kWh\n")
-            f.write(f"Battery Discharge: {np.sum(self.battery_discharge):.1f} kWh\n")
-            f.write(f"Battery Cycles: {self.battery_cycles:.2f}\n\n")
-            
-            f.write("PERFORMANCE METRICS\n")
-            f.write("-" * 30 + "\n")
-            f.write(f"Renewable Fraction: {self.renewables_fraction:.1f}%\n")
-            f.write(f"Self-sufficiency: {self.self_sufficiency:.1f}%\n")
-            f.write(f"Battery Utilization: {100*self.battery_cycles/self.days:.1f}% (cycles per day)\n\n")
-            
-            f.write("FINANCIAL METRICS\n")
-            f.write("-" * 30 + "\n")
-            f.write(f"PV Cost: ${self.pv_capacity*self.pv_cost_per_kw:,.0f} (${self.pv_cost_per_kw:,.0f}/kW)\n")
-            f.write(f"Wind Cost: ${self.wind_capacity*self.wind_cost_per_kw:,.0f} (${self.wind_cost_per_kw:,.0f}/kW)\n")
-            f.write(f"Battery Cost: ${self.battery_capacity*self.battery_cost_per_kwh:,.0f} (${self.battery_cost_per_kwh:,.0f}/kWh)\n")
-            f.write(f"Total Capital Cost: ${self.pv_capacity*self.pv_cost_per_kw + self.wind_capacity*self.wind_cost_per_kw + self.battery_capacity*self.battery_cost_per_kwh:,.0f}\n")
-            f.write(f"Annual O&M Cost: ${self.cost_components['Annual O&M']:,.0f}\n")
-            f.write(f"Annual Grid Cost: ${self.cost_components['Annual Grid Cost']:,.0f}\n")
-            f.write(f"Annual Export Revenue: ${self.cost_components['Annual Export Revenue']:,.0f}\n")
-            f.write(f"Levelized Cost of Energy (LCOE): ${self.lcoe:.4f}/kWh\n\n")
-            
-            f.write("CONCLUSION\n")
-            f.write("-" * 30 + "\n")
-            f.write(f"The {self.scenario_name} microgrid configuration achieves a renewable energy fraction of {self.renewables_fraction:.1f}% ")
-            f.write(f"with an LCOE of ${self.lcoe:.4f}/kWh. ")
-            
-            if self.renewables_fraction > 90:
-                f.write("The system achieves very high renewable penetration, ")
-            elif self.renewables_fraction > 70:
-                f.write("The system achieves good renewable penetration, ")
-            else:
-                f.write("The system achieves moderate renewable penetration, ")
-                
-            if self.battery_cycles / self.days > 0.8:
-                f.write("with high battery utilization. ")
-            elif self.battery_cycles / self.days > 0.4:
-                f.write("with moderate battery utilization. ")
-            else:
-                f.write("with low battery utilization. ")
-                
-            if self.lcoe < 0.10:
-                f.write("The LCOE is very competitive compared to typical grid prices.")
-            elif self.lcoe < 0.15:
-                f.write("The LCOE is competitive with typical grid prices.")
-            else:
-                f.write("The LCOE is higher than typical grid prices but may be justified by other benefits.")
-        
-        # Return paths to all generated files
-        return {
-            'summary': f"{self.report_dir}/summary.txt",
-            'energy_flow': f"{self.report_dir}/energy_flows.png",
-            'battery_soc': f"{self.report_dir}/battery_soc.png",
-            'daily_profile': f"{self.report_dir}/daily_profiles.png",
-            'energy_balance': f"{self.report_dir}/energy_balance.png",
-            'cost_analysis': f"{self.report_dir}/cost_analysis.png"
-        }
-    
-    def compare_scenarios(self, other_scenarios):
-        """Compare multiple scenarios and create comparative visualizations"""
-        # This assumes other_scenarios is a list of MicrogridReportGenerator instances
-        all_scenarios = [self] + other_scenarios
-        scenario_names = [s.scenario_name for s in all_scenarios]
-        
-        # Create comparison directory
-        comparison_dir = "microgrid_comparison"
-        os.makedirs(comparison_dir, exist_ok=True)
-        
-        # Extract key metrics for comparison
-        metrics = {
-            'PV Capacity (kW)': [s.pv_capacity for s in all_scenarios],
-            'Wind Capacity (kW)': [s.wind_capacity for s in all_scenarios],
-            'Battery Capacity (kWh)': [s.battery_capacity for s in all_scenarios],
-            'Renewable Fraction (%)': [s.renewables_fraction for s in all_scenarios],
-            'Self-sufficiency (%)': [s.self_sufficiency for s in all_scenarios],
-            'Battery Cycles': [s.battery_cycles for s in all_scenarios],
-            'LCOE ($/kWh)': [s.lcoe for s in all_scenarios],
-            'Grid Import (kWh)': [s.total_grid_import for s in all_scenarios],
-            'Grid Export (kWh)': [s.total_grid_export for s in all_scenarios]
-        }
-        
-        # Create comparison bar charts
-        for metric, values in metrics.items():
-            fig, ax = plt.subplots(figsize=(10, 6))
-            
-            # Create bar chart
-            bars = ax.bar(scenario_names, values, color=plt.cm.tab10.colors)
-            
-            # Add data labels
-            for bar in bars:
-                height = bar.get_height()
-                if 'LCOE' in metric:
-                    label = f'${height:.4f}'
-                elif 'Capacity' in metric or 'Cycles' in metric:
-                    label = f'{height:.1f}'
-                else:
-                    label = f'{height:.1f}'
-                
-                ax.text(bar.get_x() + bar.get_width()/2, height + 0.01 * max(values),
-                       label, ha='center', va='bottom', rotation=0)
-            
-            # Set labels and title
-            ax.set_xlabel('Scenario')
-            ax.set_ylabel(metric)
-            ax.set_title(f'Comparison of {metric} Across Scenarios')
-            
-            # Adjust y-axis to start from 0
-            ax.set_ylim(0, max(values) * 1.15)
-            
-            # Add grid
-            ax.grid(axis='y', alpha=0.3)
-            
-            # Rotate x-axis labels if needed
-            plt.xticks(rotation=45 if len(scenario_names) > 3 else 0)
-            
-            # Adjust layout
-            plt.tight_layout()
-            
-            # Save figure
-            metric_filename = metric.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('%', 'pct').replace('/', '_per_')
-            fig.savefig(f"{comparison_dir}/comparison_{metric_filename}.png")
-        
-        # Create spider chart for key metrics
-        spider_metrics = {
-            'Renewable %': [s.renewables_fraction / 100 for s in all_scenarios],
-            'Self-sufficiency': [s.self_sufficiency / 100 for s in all_scenarios],
-            'Battery Util.': [s.battery_cycles / (s.days * 1.5) for s in all_scenarios],  # Normalized to max 1.5 cycles per day
-            'Cost Efficiency': [min(1.5, 0.2 / s.lcoe) for s in all_scenarios],  # Normalized, higher is better
-            'Grid Independence': [1 - (s.total_grid_import / s.total_load) for s in all_scenarios]
-        }
-        
-        # Extract labels and values
-        categories = list(spider_metrics.keys())
-        N = len(categories)
-        
-        # Create figure
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, polar=True)
-        
-        # Set category labels
-        angles = [n / float(N) * 2 * np.pi for n in range(N)]
-        angles += angles[:1]  # Close the loop
-        
-        ax.set_theta_offset(np.pi / 2)
-        ax.set_theta_direction(-1)
-        
-        # Draw category labels
-        plt.xticks(angles[:-1], categories)
-        
-        # Draw ylabels
-        ax.set_rlabel_position(0)
-        plt.yticks([0.25, 0.5, 0.75, 1], ["0.25", "0.5", "0.75", "1.0"], color="grey", size=8)
-        plt.ylim(0, 1)
-        
-        # Plot each scenario
-        for i, scenario in enumerate(all_scenarios):
-            values = [spider_metrics[metric][i] for metric in categories]
-            values += values[:1]  # Close the loop
-            
-            # Plot values
-            ax.plot(angles, values, linewidth=2, linestyle='solid', label=scenario.scenario_name, color=plt.cm.tab10.colors[i])
-            ax.fill(angles, values, plt.cm.tab10.colors[i], alpha=0.1)
-        
-        # Add legend
-        plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
-        
-        # Add title
-        plt.title("Performance Comparison Across Scenarios", size=15, y=1.1)
-        
-        # Save figure
-        plt.tight_layout()
-        fig.savefig(f"{comparison_dir}/performance_spider_chart.png")
-        
-        # Create LCOE breakdown comparison
-        fig, ax = plt.subplots(figsize=(12, 8))
-        
-        lcoe_components = {
-            'PV Capital': [s.pv_capacity * s.pv_cost_per_kw / (s.cost_components['Annual Energy'] * s.project_lifetime) for s in all_scenarios],
-            'Wind Capital': [s.wind_capacity * s.wind_cost_per_kw / (s.cost_components['Annual Energy'] * s.project_lifetime) for s in all_scenarios],
-            'Battery Capital': [s.battery_capacity * s.battery_cost_per_kwh / (s.cost_components['Annual Energy'] * s.project_lifetime) for s in all_scenarios],
-            'O&M': [s.cost_components['Annual O&M'] / s.cost_components['Annual Energy'] for s in all_scenarios],
-            'Grid Costs': [(s.cost_components['Annual Grid Cost'] - s.cost_components['Annual Export Revenue']) / s.cost_components['Annual Energy'] for s in all_scenarios]
-        }
-        
-        # Convert to DataFrame for easier stacked bar plotting
-        df = pd.DataFrame(lcoe_components, index=scenario_names)
-        
-        # Create stacked bar chart
-        ax = df.plot(kind='bar', stacked=True, ax=ax, figsize=(12, 8))
-        
-        # Add total LCOE values
-        total_lcoe = [s.lcoe for s in all_scenarios]
-        for i, lcoe in enumerate(total_lcoe):
-            ax.text(i, sum(df.iloc[i]), f'Total: ${lcoe:.4f}', ha='center', va='bottom', fontweight='bold')
-        
-        # Format y-axis as dollars
-        from matplotlib.ticker import FuncFormatter
-        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'${y:.4f}'))
-        
-        # Set labels and title
-        ax.set_xlabel('Scenario')
-        ax.set_ylabel('LCOE ($/kWh)')
-        ax.set_title('LCOE Component Breakdown by Scenario')
-        
-        # Adjust legend
-        ax.legend(title='Cost Component', bbox_to_anchor=(1.05, 1), loc='upper left')
-        
-        # Rotate x-axis labels if needed
-        plt.xticks(rotation=45 if len(scenario_names) > 3 else 0)
-        
-        # Adjust layout
-        plt.tight_layout()
-        
-        # Save figure
-        fig.savefig(f"{comparison_dir}/lcoe_breakdown_comparison.png")
-        
-        # Return paths to all comparison files
-        comparison_files = {
-            'spider_chart': f"{comparison_dir}/performance_spider_chart.png",
-            'lcoe_breakdown': f"{comparison_dir}/lcoe_breakdown_comparison.png"
-        }
-        
-        for metric in metrics:
-            metric_filename = metric.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('%', 'pct').replace('/', '_per_')
-            comparison_files[metric_filename] = f"{comparison_dir}/comparison_{metric_filename}.png"
-        
-        return comparison_files
 
     def perform_sensitivity_analysis(self, pv_range, wind_range, battery_range):
-        """
-        Run a grid search over PV, wind, and battery capacities and return a DataFrame 
-        with LCOE for each combination.
-        """
         results = []
         for pv in pv_range:
             for wind in wind_range:
                 for battery in battery_range:
-                    # Create a new scenario for each combination
                     sim = MicrogridReportGenerator("Sensitivity")
                     sim.days = self.days
                     sim.hours = self.days * 24
@@ -1026,42 +531,14 @@ class MicrogridReportGenerator:
                     sim.pv_capacity = pv
                     sim.wind_capacity = wind
                     sim.battery_capacity = battery
-                    sim.battery_power = self.battery_power  # fixed value from current inputs
+                    sim.battery_power = self.battery_power
                     sim.peak_load = self.peak_load
                     sim.generate_data()
                     results.append((pv, wind, battery, sim.lcoe))
         df = pd.DataFrame(results, columns=['PV Capacity', 'Wind Capacity', 'Battery Capacity', 'LCOE'])
         return df
 
-    def create_station_load_plot(self):
-        """Create a plot showing each station's 24-hour load curve and the total load curve."""
-        if self.df_load is not None:
-            fig, ax = plt.subplots(figsize=(14, 6))
-            hours = np.arange(24)
-            total_load = np.zeros(24)
-            # Plot individual station curves
-            for i, row in self.df_load.iterrows():
-                # Assume first two columns are station name and type; columns 3 onward are hourly loads
-                station_name = row.iloc[0]
-                station_load = row.iloc[2:].astype(float).values
-                total_load += station_load
-                ax.plot(hours, station_load, label=str(station_name), alpha=0.6, linestyle='--')
-            # Plot total load curve
-            ax.plot(hours, total_load, label='Total Load', color='black', linewidth=3)
-            ax.set_xlabel("Hour of Day")
-            ax.set_ylabel("Load (kW)")
-            ax.set_title("24-Hour Load Curves by Station and Total")
-            ax.legend(loc="upper right", fontsize=8, ncol=2)
-            ax.grid(True, alpha=0.3)
-            plt.xticks(hours)
-            fig.tight_layout()
-            fig.savefig(f"{self.report_dir}/station_load_curves.png")
-            return fig
-        else:
-            return None
-
     def create_load_data_plot(self):
-        """Create a plot for the total daily load data (summed across stations) from the Excel file."""
         if self.original_daily_load is not None:
             fig, ax = plt.subplots(figsize=(14, 6))
             ax.plot(self.original_daily_load.index, self.original_daily_load['load'], 'b-', label='Total Daily Load')
@@ -1071,131 +548,129 @@ class MicrogridReportGenerator:
             ax.legend()
             ax.grid(True)
             plt.xticks(rotation=45)
-            fig.tight_layout()
+            plt.tight_layout()
             fig.savefig(f"{self.report_dir}/load_data_total.png")
             return fig
         else:
             return None
 
-if __name__ == "__main__":
-    st.title("Microgrid Analysis Interactive Report")
+    def create_station_load_plot(self):
+        if self.df_load is not None:
+            fig, ax = plt.subplots(figsize=(14, 6))
+            hours = np.arange(24)
+            total_load = np.zeros(24)
+            for i, row in self.df_load.iterrows():
+                station_name = row.iloc[0]
+                station_load = row.iloc[2:].astype(float).values
+                total_load += station_load
+                ax.plot(hours, station_load, label=str(station_name), alpha=0.6, linestyle='--')
+            ax.plot(hours, total_load, label='Total Load', color='black', linewidth=3)
+            ax.set_xlabel("Hour of Day")
+            ax.set_ylabel("Load (kW)")
+            ax.set_title("24-Hour Load Curves by Station and Total")
+            ax.legend(loc="upper right", fontsize=8, ncol=2)
+            ax.grid(True, alpha=0.3)
+            plt.xticks(hours)
+            plt.tight_layout()
+            fig.savefig(f"{self.report_dir}/station_load_curves.png")
+            return fig
+        else:
+            return None
+
+##############################
+# MERGED STREAMLIT APPLICATION
+##############################
+def main():
+    st.title("Merged Streamlit Application: Microgrid Analysis & AFT_01 Calculations")
     
-    # Sidebar: allow load data upload
+    # Sidebar common inputs for the microgrid report section
     load_file = st.sidebar.file_uploader("Upload Load Data Excel (with station data)", type=['xlsx'])
-    
-    # Scenario selection and parameter inputs
     scenario_option = st.sidebar.selectbox(
         "Select Scenario",
         ["Custom", "Base Scenario", "High PV Scenario", "High Wind Scenario", "High Storage Scenario"]
     )
-    if scenario_option == "Custom":
-        pv_capacity     = st.sidebar.number_input("PV Capacity (kW)", min_value=0, value=150)
-        wind_capacity   = st.sidebar.number_input("Wind Capacity (kW)", min_value=0, value=100)
-        battery_capacity= st.sidebar.number_input("Battery Capacity (kWh)", min_value=0, value=300)
-        battery_power   = st.sidebar.number_input("Battery Power (kW)", min_value=0, value=75)
-        peak_load       = st.sidebar.number_input("Peak Load (kW)", min_value=0, value=180)
-    else:
-        if scenario_option == "Base Scenario":
-            pv_capacity, wind_capacity, battery_capacity = 150, 100, 300
-            battery_power, peak_load = 75, 180
-        elif scenario_option == "High PV Scenario":
-            pv_capacity, wind_capacity, battery_capacity = 250, 50, 300
-            battery_power, peak_load = 75, 180
-        elif scenario_option == "High Wind Scenario":
-            pv_capacity, wind_capacity, battery_capacity = 50, 250, 300
-            battery_power, peak_load = 75, 180
-        elif scenario_option == "High Storage Scenario":
-            pv_capacity, wind_capacity, battery_capacity = 150, 100, 600
-            battery_power, peak_load = 150, 180
-
     simulation_days = st.sidebar.number_input("Simulation Days", min_value=1, value=7)
     
-    # Create three tabs with the LOAD DATA tab first
-    load_data_tab, simulation_tab, sensitivity_tab = st.tabs(["Load Data", "Simulation", "Sensitivity Analysis"])
+    # Create four main tabs
+    tabs = st.tabs(["Load Data", "Simulation", "Sensitivity Analysis", "AFT_01"])
     
-    with load_data_tab:
+    # ---- Load Data Tab ----
+    with tabs[0]:
         st.subheader("Load Data Overview")
-        try:
-            # Create a scenario instance to process load data without altering simulation parameters
-            scenario_for_loads = MicrogridReportGenerator("Custom", load_data_file=load_file)
-            if scenario_for_loads.df_load is not None:
-                st.write("### Full Excel Load Data")
-                st.dataframe(scenario_for_loads.df_load)
-                st.write("### Total Daily Load Data Curve")
-                total_load_fig = scenario_for_loads.create_load_data_plot()
-                if total_load_fig is not None:
-                    st.pyplot(total_load_fig)
-                st.write("### Station Load Curves")
-                station_load_fig = scenario_for_loads.create_station_load_plot()
-                if station_load_fig is not None:
-                    st.pyplot(station_load_fig)
-            else:
-                st.info("No load data provided or loading failed.")
-        except Exception as e:
-            st.error(f"Error processing load data: {e}")
+        scenario_for_loads = MicrogridReportGenerator("Custom", load_data_file=load_file)
+        if scenario_for_loads.df_load is not None:
+            st.write("### Full Excel Load Data")
+            st.dataframe(scenario_for_loads.df_load)
+            st.write("### Total Daily Load Data Curve")
+            total_load_fig = scenario_for_loads.create_load_data_plot()
+            if total_load_fig is not None:
+                st.pyplot(total_load_fig)
+            st.write("### Station Load Curves")
+            station_load_fig = scenario_for_loads.create_station_load_plot()
+            if station_load_fig is not None:
+                st.pyplot(station_load_fig)
+        else:
+            st.info("No load data provided or loading failed.")
     
-    with simulation_tab:
+    # ---- Simulation Tab ----
+    with tabs[1]:
         st.subheader("Run Simulation and Generate Report")
         if st.button("Run Simulation"):
             with st.spinner("Running simulation and generating report..."):
                 scenario = MicrogridReportGenerator("Custom", load_data_file=load_file)
-                # Update simulation time and system parameters
                 scenario.days = simulation_days
                 scenario.hours = simulation_days * 24
-                scenario.time_range = np.linspace(0, simulation_days, simulation_days * 24)
-                scenario.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h) 
-                                  for h in range(simulation_days * 24)]
-                scenario.pv_capacity = pv_capacity
-                scenario.wind_capacity = wind_capacity
-                scenario.battery_capacity = battery_capacity
-                scenario.battery_power = battery_power
-                scenario.peak_load = peak_load
+                scenario.time_range = np.linspace(0, simulation_days, scenario.hours)
+                scenario.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h) for h in range(scenario.hours)]
                 scenario.generate_data()
-                files = scenario.create_comprehensive_report()
-            st.success("Simulation complete!")
-            try:
-                with open(files['summary'], 'r') as f:
-                    summary_text = f.read()
-                st.subheader("Report Summary")
-                st.text_area("Summary", summary_text, height=300)
-            except Exception as e:
-                st.error(f"Could not load summary: {e}")
-            st.subheader("Energy Flow Diagram")
-            st.pyplot(scenario.create_energy_flow_plot())
-            st.subheader("Battery State of Charge")
-            st.pyplot(scenario.create_battery_soc_plot())
-            st.subheader("Average Daily Profiles")
-            st.pyplot(scenario.create_daily_profile_plot())
-            st.subheader("Energy Balance Diagram")
-            st.pyplot(scenario.create_energy_balance_diagram())
-            st.subheader("LCOE Breakdown")
-            st.pyplot(scenario.create_lcoe_breakdown())
+                st.write("### Energy Flow Diagram")
+                fig1 = scenario.create_energy_flow_plot()
+                st.pyplot(fig1)
+                st.write("### Battery State of Charge")
+                fig2 = scenario.create_battery_soc_plot()
+                st.pyplot(fig2)
     
-    with sensitivity_tab:
-        st.subheader("Sensitivity Analysis on LCOE")
+    # ---- Sensitivity Analysis Tab ----
+    with tabs[2]:
+        st.subheader("Sensitivity Analysis")
         if st.button("Run Sensitivity Analysis"):
-            with st.spinner("Performing sensitivity analysis..."):
-                pv_range = np.linspace(100, 300, 5)   # kW
-                wind_range = np.linspace(50, 250, 5)  # kW
-                battery_range = np.linspace(200, 600, 5)  # kWh
-                base_scenario = MicrogridReportGenerator("Base")
-                base_scenario.days = simulation_days
-                base_scenario.hours = simulation_days * 24
-                base_scenario.time_range = np.linspace(0, simulation_days, simulation_days * 24)
-                base_scenario.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h) 
-                                       for h in range(simulation_days * 24)]
-                base_scenario.battery_power = battery_power
-                base_scenario.peak_load = peak_load
-                df_sens = base_scenario.perform_sensitivity_analysis(pv_range, wind_range, battery_range)
-                import seaborn as sns
-                fig_heat, axes = plt.subplots(1, len(battery_range), figsize=(24, 6), sharey=True)
-                for i, batt in enumerate(battery_range):
-                    sub_df = df_sens[np.isclose(df_sens['Battery Capacity'], batt)]
-                    pivot = sub_df.pivot(index='Wind Capacity', columns='PV Capacity', values='LCOE')
-                    sns.heatmap(pivot, ax=axes[i], annot=True, fmt=".4f", cmap="viridis",
-                                cbar=i==len(battery_range)-1, annot_kws={"size":12})
-                    axes[i].set_title(f"Battery Capacity {batt:.0f} kWh", fontsize=14)
-                    axes[i].tick_params(axis='both', labelsize=12)
-                fig_heat.tight_layout()
-                st.pyplot(fig_heat)
-                st.success("Sensitivity analysis complete!")
+            pv_range = st.slider("PV Capacity Range", 50, 300, (150, 250))
+            wind_range = st.slider("Wind Capacity Range", 50, 300, (100, 200))
+            battery_range = st.slider("Battery Capacity Range", 100, 600, (300, 500))
+            scenario = MicrogridReportGenerator("Custom", load_data_file=load_file)
+            scenario.days = simulation_days
+            scenario.hours = simulation_days * 24
+            scenario.time_range = np.linspace(0, simulation_days, scenario.hours)
+            scenario.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h) for h in range(scenario.hours)]
+            scenario.generate_data()
+            df_sens = scenario.perform_sensitivity_analysis(
+                range(pv_range[0], pv_range[1]+1, 50),
+                range(wind_range[0], wind_range[1]+1, 50),
+                range(battery_range[0], battery_range[1]+1, 100)
+            )
+            st.write("### Sensitivity Analysis Results")
+            st.dataframe(df_sens)
+    
+    # ---- AFT_01 Tab ----
+    with tabs[3]:
+        st.subheader("AFT_01 Calculations")
+        calc_type = st.radio("Select Calculation", ("Residential", "Loan", "kWh Estimation", "Corporate"))
+        if calc_type == "Residential":
+            st.write("### Residential Consumers Data")
+            results = compute_residential()
+            st.write(results)
+        elif calc_type == "Loan":
+            st.write("### Loan Calculation Data")
+            results = compute_loan()
+            st.write(results)
+        elif calc_type == "kWh Estimation":
+            st.write("### kWh Estimation Data")
+            results = compute_kwh_estimation()
+            st.write(results)
+        elif calc_type == "Corporate":
+            st.write("### Corporate Consumers Data")
+            results = compute_corporate()
+            st.write(results)
+
+if __name__ == "__main__":
+    main()
