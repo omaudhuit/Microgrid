@@ -639,7 +639,7 @@ class MicrogridReportGenerator:
             f"Total Load: {self.total_load:.1f} kWh\n"
             f"PV Generation: {self.pv_generation:.1f} kWh\n"
             f"Wind Generation: {self.wind_generation:.1f} kWh\n"
-            f"Battery Throughput: {np.sum(self.battery_discharge)::.1f} kWh\n"
+            f"Battery Throughput: {np.sum(self.battery_discharge):.1f} kWh\n"
             f"Grid Import: {self.total_grid_import:.1f} kWh\n"
             f"Grid Export: {self.total_grid_export:.1f} kWh\n"
             f"Renewable Fraction: {self.renewables_fraction:.1f}%\n"
