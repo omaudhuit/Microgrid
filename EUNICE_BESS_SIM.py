@@ -1138,4 +1138,3 @@ if __name__ == "__main__":
             st.subheader("LCOE Breakdown")
             st.pyplot(scenario.create_lcoe_breakdown())
     ...
-```
