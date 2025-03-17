@@ -13,4 +13,3 @@ px
 numpy-financial
 openpyxl
 math
-os
