@@ -56,13 +56,14 @@ class MicrogridReportGenerator:
             try:
                 # Read the Excel file; expected columns: A: station name, B: station type, Columns C–Z: 24 hourly load values
                 df_load = pd.read_excel(load_data_file)
+                st.write("Excel file preview:", df_load.head())  # Debug: show first few rows
                 # Sum the load across all stations for each hour (from the third column onward)
                 daily_load = df_load.iloc[:, 2:].sum(axis=0).values  # yields 24 values
                 # Create a DataFrame for a single day load curve
                 date_index = pd.date_range(start="2025-01-01", periods=24, freq="H")
                 self.original_daily_load = pd.DataFrame({'load': daily_load}, index=date_index)
             except Exception as e:
-                print(f"Error reading load data file: {e}")
+                st.error(f"Error reading load data file: {e}")
                 self.original_daily_load = None
 
         # Proceed to generate other data and create report directory
