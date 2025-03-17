@@ -48,8 +48,9 @@ class MicrogridReportGenerator:
         self.grid_electricity_price = 0.12  # $/kWh
         self.grid_export_price = 0.05  # $/kWh
 
-        # Always initialize original_daily_load to guarantee the attribute exists
+        # Always initialize original_daily_load and df_load to guarantee the attributes exist
         self.original_daily_load = None
+        self.df_load = None
 
         # If a load data file is provided, try to read it
         if load_data_file is not None:
@@ -57,9 +58,11 @@ class MicrogridReportGenerator:
                 # Read the Excel file; expected columns: A: station name, B: station type, Columns C–Z: 24 hourly load values
                 df_load = pd.read_excel(load_data_file, engine='openpyxl')
                 st.write("Excel file preview:", df_load.head())  # Debug: show first few rows
+                self.df_load = df_load.copy()  # Store full Excel data
+
                 # Sum the load across all stations for each hour (from the third column onward)
                 daily_load = df_load.iloc[:, 2:].sum(axis=0).values  # yields 24 values
-                # Create a DataFrame for a single day load curve
+                # Create a DataFrame for a single day load curve (total load)
                 date_index = pd.date_range(start="2025-01-01", periods=24, freq="H")
                 self.original_daily_load = pd.DataFrame({'load': daily_load}, index=date_index)
             except Exception as e:
@@ -1030,19 +1033,46 @@ class MicrogridReportGenerator:
         df = pd.DataFrame(results, columns=['PV Capacity', 'Wind Capacity', 'Battery Capacity', 'LCOE'])
         return df
 
+    def create_station_load_plot(self):
+        """Create a plot showing each station's 24-hour load curve and the total load curve."""
+        if self.df_load is not None:
+            fig, ax = plt.subplots(figsize=(14, 6))
+            hours = np.arange(24)
+            total_load = np.zeros(24)
+            # Plot individual station curves
+            for i, row in self.df_load.iterrows():
+                # Assume first two columns are station name and type; columns 3 onward are hourly loads
+                station_name = row.iloc[0]
+                station_load = row.iloc[2:].astype(float).values
+                total_load += station_load
+                ax.plot(hours, station_load, label=str(station_name), alpha=0.6, linestyle='--')
+            # Plot total load curve
+            ax.plot(hours, total_load, label='Total Load', color='black', linewidth=3)
+            ax.set_xlabel("Hour of Day")
+            ax.set_ylabel("Load (kW)")
+            ax.set_title("24-Hour Load Curves by Station and Total")
+            ax.legend(loc="upper right", fontsize=8, ncol=2)
+            ax.grid(True, alpha=0.3)
+            plt.xticks(hours)
+            fig.tight_layout()
+            fig.savefig(f"{self.report_dir}/station_load_curves.png")
+            return fig
+        else:
+            return None
+
     def create_load_data_plot(self):
-        """Create a plot for the original daily load data from the Excel file"""
+        """Create a plot for the total daily load data (summed across stations) from the Excel file."""
         if self.original_daily_load is not None:
             fig, ax = plt.subplots(figsize=(14, 6))
-            ax.plot(self.original_daily_load.index, self.original_daily_load['load'], 'b-', label='Daily Load Data')
+            ax.plot(self.original_daily_load.index, self.original_daily_load['load'], 'b-', label='Total Daily Load')
             ax.set_xlabel('Timestamp')
             ax.set_ylabel('Load (kW)')
-            ax.set_title('Daily Load Data from Excel')
+            ax.set_title('Total Daily Load Data from Excel')
             ax.legend()
             ax.grid(True)
             plt.xticks(rotation=45)
             fig.tight_layout()
-            fig.savefig(f"{self.report_dir}/load_data.png")
+            fig.savefig(f"{self.report_dir}/load_data_total.png")
             return fig
         else:
             return None
@@ -1051,7 +1081,7 @@ if __name__ == "__main__":
     st.title("Microgrid Analysis Interactive Report")
     
     # Sidebar: allow load data upload
-    load_file = st.sidebar.file_uploader("Upload Load Data Excel (with 'timestamp' and 'load' columns)", type=['xlsx'])
+    load_file = st.sidebar.file_uploader("Upload Load Data Excel (with station data)", type=['xlsx'])
     
     # Scenario selection and parameter inputs
     scenario_option = st.sidebar.selectbox(
@@ -1080,8 +1110,29 @@ if __name__ == "__main__":
 
     simulation_days = st.sidebar.number_input("Simulation Days", min_value=1, value=7)
     
-    # Create three tabs: Simulation, Load Data, Sensitivity Analysis
-    simulation_tab, load_data_tab, sensitivity_tab = st.tabs(["Simulation", "Load Data", "Sensitivity Analysis"])
+    # Create three tabs with the LOAD DATA tab first
+    load_data_tab, simulation_tab, sensitivity_tab = st.tabs(["Load Data", "Simulation", "Sensitivity Analysis"])
+    
+    with load_data_tab:
+        st.subheader("Load Data Overview")
+        try:
+            # Create a scenario instance to process load data without altering simulation parameters
+            scenario_for_loads = MicrogridReportGenerator("Custom", load_data_file=load_file)
+            if scenario_for_loads.df_load is not None:
+                st.write("### Full Excel Load Data")
+                st.dataframe(scenario_for_loads.df_load)
+                st.write("### Total Daily Load Data Curve")
+                total_load_fig = scenario_for_loads.create_load_data_plot()
+                if total_load_fig is not None:
+                    st.pyplot(total_load_fig)
+                st.write("### Station Load Curves")
+                station_load_fig = scenario_for_loads.create_station_load_plot()
+                if station_load_fig is not None:
+                    st.pyplot(station_load_fig)
+            else:
+                st.info("No load data provided or loading failed.")
+        except Exception as e:
+            st.error(f"Error processing load data: {e}")
     
     with simulation_tab:
         st.subheader("Run Simulation and Generate Report")
@@ -1099,12 +1150,9 @@ if __name__ == "__main__":
                 scenario.battery_capacity = battery_capacity
                 scenario.battery_power = battery_power
                 scenario.peak_load = peak_load
-
                 scenario.generate_data()
                 files = scenario.create_comprehensive_report()
             st.success("Simulation complete!")
-            
-            # Display the Report Summary
             try:
                 with open(files['summary'], 'r') as f:
                     summary_text = f.read()
@@ -1112,8 +1160,6 @@ if __name__ == "__main__":
                 st.text_area("Summary", summary_text, height=300)
             except Exception as e:
                 st.error(f"Could not load summary: {e}")
-            
-            # Display Generated Figures
             st.subheader("Energy Flow Diagram")
             st.pyplot(scenario.create_energy_flow_plot())
             st.subheader("Battery State of Charge")
@@ -1125,34 +1171,13 @@ if __name__ == "__main__":
             st.subheader("LCOE Breakdown")
             st.pyplot(scenario.create_lcoe_breakdown())
     
-    with load_data_tab:
-        st.subheader("Load Data Overview")
-        # Check if original daily load data exists; display preview and plot it.
-        try:
-            # Create a scenario instance (without altering simulation parameters) to process load data
-            scenario_for_loads = MicrogridReportGenerator("Custom", load_data_file=load_file)
-            if scenario_for_loads.original_daily_load is not None:
-                st.write("### Uploaded Load Data Preview")
-                st.dataframe(scenario_for_loads.original_daily_load.head())
-                st.write("### Daily Load Data Curve")
-                load_fig = scenario_for_loads.create_load_data_plot()
-                if load_fig is not None:
-                    st.pyplot(load_fig)
-            else:
-                st.info("No load data provided or loading failed.")
-        except Exception as e:
-            st.error(f"Error processing load data: {e}")
-    
     with sensitivity_tab:
         st.subheader("Sensitivity Analysis on LCOE")
         if st.button("Run Sensitivity Analysis"):
             with st.spinner("Performing sensitivity analysis..."):
-                # Define parameter ranges (adjust as needed)
                 pv_range = np.linspace(100, 300, 5)   # kW
                 wind_range = np.linspace(50, 250, 5)  # kW
                 battery_range = np.linspace(200, 600, 5)  # kWh
-                
-                # Use the current simulation settings for consistency
                 base_scenario = MicrogridReportGenerator("Base")
                 base_scenario.days = simulation_days
                 base_scenario.hours = simulation_days * 24
@@ -1161,10 +1186,7 @@ if __name__ == "__main__":
                                        for h in range(simulation_days * 24)]
                 base_scenario.battery_power = battery_power
                 base_scenario.peak_load = peak_load
-                
                 df_sens = base_scenario.perform_sensitivity_analysis(pv_range, wind_range, battery_range)
-                
-                # Plot a heatmap for each battery capacity value
                 import seaborn as sns
                 fig_heat, axes = plt.subplots(1, len(battery_range), figsize=(24, 6), sharey=True)
                 for i, batt in enumerate(battery_range):
