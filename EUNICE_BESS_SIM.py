@@ -1109,9 +1109,9 @@ if __name__ == "__main__":
             st.success("Simulation complete!")
             
             # If load data was uploaded, display its preview and plot
-            if scenario.load_data is not None:
+            if scenario.original_daily_load is not None:
                 st.subheader("Uploaded Load Data Preview")
-                st.dataframe(scenario.load_data.head())
+                st.dataframe(scenario.original_daily_load.head())
                 st.subheader("Load Data Curve")
                 load_fig = scenario.create_load_data_plot()
                 if load_fig is not None:
