@@ -1052,20 +1052,18 @@ if __name__ == "__main__":
     # Sidebar: allow load data upload
     load_file = st.sidebar.file_uploader("Upload Load Data Excel (with 'timestamp' and 'load' columns)", type=['xlsx'])
     
-    # Choose scenario and adjust parameters (existing code)...
-    # For example:
+    # Scenario selection and parameter inputs
     scenario_option = st.sidebar.selectbox(
         "Select Scenario",
         ["Custom", "Base Scenario", "High PV Scenario", "High Wind Scenario", "High Storage Scenario"]
     )
     if scenario_option == "Custom":
-        pv_capacity = st.sidebar.number_input("PV Capacity (kW)", min_value=0, value=150)
-        wind_capacity = st.sidebar.number_input("Wind Capacity (kW)", min_value=0, value=100)
-        battery_capacity = st.sidebar.number_input("Battery Capacity (kWh)", min_value=0, value=300)
-        battery_power = st.sidebar.number_input("Battery Power (kW)", min_value=0, value=75)
-        peak_load = st.sidebar.number_input("Peak Load (kW)", min_value=0, value=180)
+        pv_capacity     = st.sidebar.number_input("PV Capacity (kW)", min_value=0, value=150)
+        wind_capacity   = st.sidebar.number_input("Wind Capacity (kW)", min_value=0, value=100)
+        battery_capacity= st.sidebar.number_input("Battery Capacity (kWh)", min_value=0, value=300)
+        battery_power   = st.sidebar.number_input("Battery Power (kW)", min_value=0, value=75)
+        peak_load       = st.sidebar.number_input("Peak Load (kW)", min_value=0, value=180)
     else:
-        # Preset values for other scenarios
         if scenario_option == "Base Scenario":
             pv_capacity, wind_capacity, battery_capacity = 150, 100, 300
             battery_power, peak_load = 75, 180
@@ -1080,14 +1078,16 @@ if __name__ == "__main__":
             battery_power, peak_load = 150, 180
 
     simulation_days = st.sidebar.number_input("Simulation Days", min_value=1, value=7)
-
-    simulation_tab, sensitivity_tab = st.tabs(["Simulation", "Sensitivity Analysis"])
-
+    
+    # Create three tabs: Simulation, Load Data, Sensitivity Analysis
+    simulation_tab, load_data_tab, sensitivity_tab = st.tabs(["Simulation", "Load Data", "Sensitivity Analysis"])
+    
     with simulation_tab:
         st.subheader("Run Simulation and Generate Report")
         if st.button("Run Simulation"):
             with st.spinner("Running simulation and generating report..."):
                 scenario = MicrogridReportGenerator("Custom", load_data_file=load_file)
+                # Update simulation time and system parameters
                 scenario.days = simulation_days
                 scenario.hours = simulation_days * 24
                 scenario.time_range = np.linspace(0, simulation_days, simulation_days * 24)
@@ -1098,19 +1098,10 @@ if __name__ == "__main__":
                 scenario.battery_capacity = battery_capacity
                 scenario.battery_power = battery_power
                 scenario.peak_load = peak_load
-                
+
                 scenario.generate_data()
                 files = scenario.create_comprehensive_report()
             st.success("Simulation complete!")
-            
-            # If load data was uploaded, display its preview and plot
-            if scenario.original_daily_load is not None:
-                st.subheader("Uploaded Load Data Preview")
-                st.dataframe(scenario.original_daily_load.head())
-                st.subheader("Load Data Curve")
-                load_fig = scenario.create_load_data_plot()
-                if load_fig is not None:
-                    st.pyplot(load_fig)
             
             # Display the Report Summary
             try:
@@ -1121,7 +1112,7 @@ if __name__ == "__main__":
             except Exception as e:
                 st.error(f"Could not load summary: {e}")
             
-            # Display Generated Figures (existing code)
+            # Display Generated Figures
             st.subheader("Energy Flow Diagram")
             st.pyplot(scenario.create_energy_flow_plot())
             st.subheader("Battery State of Charge")
@@ -1132,4 +1123,56 @@ if __name__ == "__main__":
             st.pyplot(scenario.create_energy_balance_diagram())
             st.subheader("LCOE Breakdown")
             st.pyplot(scenario.create_lcoe_breakdown())
-    ...
+    
+    with load_data_tab:
+        st.subheader("Load Data Overview")
+        # Check if original daily load data exists; display preview and plot it.
+        try:
+            # Create a scenario instance (without altering simulation parameters) to process load data
+            scenario_for_loads = MicrogridReportGenerator("Custom", load_data_file=load_file)
+            if scenario_for_loads.original_daily_load is not None:
+                st.write("### Uploaded Load Data Preview")
+                st.dataframe(scenario_for_loads.original_daily_load.head())
+                st.write("### Daily Load Data Curve")
+                load_fig = scenario_for_loads.create_load_data_plot()
+                if load_fig is not None:
+                    st.pyplot(load_fig)
+            else:
+                st.info("No load data provided or loading failed.")
+        except Exception as e:
+            st.error(f"Error processing load data: {e}")
+    
+    with sensitivity_tab:
+        st.subheader("Sensitivity Analysis on LCOE")
+        if st.button("Run Sensitivity Analysis"):
+            with st.spinner("Performing sensitivity analysis..."):
+                # Define parameter ranges (adjust as needed)
+                pv_range = np.linspace(100, 300, 5)   # kW
+                wind_range = np.linspace(50, 250, 5)  # kW
+                battery_range = np.linspace(200, 600, 5)  # kWh
+                
+                # Use the current simulation settings for consistency
+                base_scenario = MicrogridReportGenerator("Base")
+                base_scenario.days = simulation_days
+                base_scenario.hours = simulation_days * 24
+                base_scenario.time_range = np.linspace(0, simulation_days, simulation_days * 24)
+                base_scenario.dates = [dt.datetime(2025, 1, 1) + dt.timedelta(hours=h) 
+                                       for h in range(simulation_days * 24)]
+                base_scenario.battery_power = battery_power
+                base_scenario.peak_load = peak_load
+                
+                df_sens = base_scenario.perform_sensitivity_analysis(pv_range, wind_range, battery_range)
+                
+                # Plot a heatmap for each battery capacity value
+                import seaborn as sns
+                fig_heat, axes = plt.subplots(1, len(battery_range), figsize=(24, 6), sharey=True)
+                for i, batt in enumerate(battery_range):
+                    sub_df = df_sens[np.isclose(df_sens['Battery Capacity'], batt)]
+                    pivot = sub_df.pivot(index='Wind Capacity', columns='PV Capacity', values='LCOE')
+                    sns.heatmap(pivot, ax=axes[i], annot=True, fmt=".4f", cmap="viridis",
+                                cbar=i==len(battery_range)-1, annot_kws={"size":12})
+                    axes[i].set_title(f"Battery Capacity {batt:.0f} kWh", fontsize=14)
+                    axes[i].tick_params(axis='both', labelsize=12)
+                fig_heat.tight_layout()
+                st.pyplot(fig_heat)
+                st.success("Sensitivity analysis complete!")
