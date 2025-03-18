@@ -25,7 +25,7 @@ def PMT(rate, nper, pv):
 
 def compute_residential():
     # Input Values
-    annual_consumption = 11536         # kWh
+    annual_consumption = 11536         # kWh - hard coded
     consumption_time = "Απόγευμα-Βράδυ"  # options: "Πρωί-Μεσημέρι" or "Απόγευμα-Βράδυ"
     supply_power = 35                  # kVA
     tariff_category = "Γ1"             # e.g., "Γ1" or "Γ1Ν"
