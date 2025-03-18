@@ -12,5 +12,4 @@ npf
 px
 numpy-financial
 openpyxl
-math
 scipy 
